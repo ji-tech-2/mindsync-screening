@@ -3,15 +3,39 @@ import pandas as pd
 from flask import Flask, request, jsonify
 import os
 import numpy as np
-from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.preprocessing import StandardScaler
+
+# --- 1. ADD ALL PREPROCESSING IMPORTS ---
+# Pickle needs these libraries loaded to reconstruct the pipeline
+from sklearn.base import BaseEstimator, RegressorMixin 
+from sklearn.preprocessing import (
+    StandardScaler,
+    OneHotEncoder,
+    PolynomialFeatures,
+    PowerTransformer,
+    FunctionTransformer
+)
+
 
 app = Flask(__name__)
 
-# Configuration: Point to the artifacts folder defined in your notebook
+# Configuration
 MODEL_PATH = os.path.join('artifacts', 'model.pkl')
 
+# --- 2. DEFINE THE CUSTOM CLEANER FUNCTION ---
+# This must exist exactly as it did in the notebook
+def clean_occupation_column(df):
+    """
+    Mendeteksi kolom 'occupation' dan menggabungkan
+    kategori jarang (Unemployed, Retired) menjadi 'Other'.
+    """
+    df_copy = df.copy()
+    if 'occupation' in df_copy.columns:
+        df_copy['occupation'] = df_copy['occupation'].replace(
+            ['Unemployed', 'Retired'], 'Other'
+        )
+    return df_copy
 
+# --- 3. DEFINE THE CUSTOM MODEL CLASS ---
 class LinearRegressionRidge(BaseEstimator, RegressorMixin):
     def __init__(self, alpha=1.0, fit_intercept=True, normalize=False, 
                  solver='closed_form', learning_rate=0.01, max_iter=1000, 
@@ -234,69 +258,58 @@ class LinearRegressionRidge(BaseEstimator, RegressorMixin):
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - (ss_res / ss_tot)
 
-
-# Class harus ada, soalnya aku pake custom model
-
-
-
+# --- 4. LOAD MODEL ---
 def load_model():
-    """Loads the trained pipeline from the artifacts folder."""
     if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model file not found at {MODEL_PATH}. Please run your notebook export script first.")
+        raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
     
     with open(MODEL_PATH, 'rb') as file:
         model = pickle.load(file)
     return model
 
-# Load the model once when the app starts
+# Load model inside a Try/Except block to catch the specific error
 try:
     model = load_model()
     print(f"Successfully loaded model from {MODEL_PATH}")
 except Exception as e:
-    print(f"Error loading model: {e}")
+    # This print is crucial for debugging
+    print(f"CRITICAL ERROR loading model: {e}")
     model = None
 
 @app.route('/')
 def home():
     return jsonify({
         "status": "active",
-        "message": "Model API is running. Send POST requests to /predict",
-        "note": "Ensure JSON keys match the columns used in X_train/x_test"
+        "message": "Model API is running."
     })
 
 @app.route('/predict', methods=['POST'])
 def predict():
     if not model:
-        return jsonify({"error": "Model could not be loaded on server start."}), 500
+        return jsonify({
+            "error": "Model failed to load. Check server logs for details."
+        }), 500
 
     try:
-        # 1. Get JSON data
         json_input = request.get_json()
         
-        # 2. Convert to DataFrame
-        # We use a list [json_input] to create a single-row DataFrame
-        # If json_input is already a list of dicts, pd.DataFrame handles it automatically
+        # Handle dict vs list input
         if isinstance(json_input, dict):
             df = pd.DataFrame([json_input])
         else:
             df = pd.DataFrame(json_input)
 
-        # 3. Predict
-        # Since 'best_pipe' includes preprocessing, we pass the raw DataFrame directly
         prediction = model.predict(df)
         
-        # 4. Return Result
         return jsonify({
             "prediction": prediction.tolist(),
             "status": "success"
         })
 
     except Exception as e:
-        # This captures errors like "Column 'Age' not found" if input is missing keys
         return jsonify({
             "error": str(e),
-            "status": "error",
-            "hint": "Check that your JSON keys match the column names used in training."
+            "status": "error"
         }), 400
 
 if __name__ == '__main__':
