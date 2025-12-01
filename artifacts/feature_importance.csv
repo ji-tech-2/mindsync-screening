@@ -1,0 +1,13 @@
+Feature,Importance
+num__stress_level_0_10,0.3051688864837422
+num__productivity_0_100,0.14939089894371715
+num__sleep_quality_1_5^2,0.14187669868234137
+num__stress_level_0_10 productivity_0_100,0.06173446309296622
+num__exercise_minutes_per_week,0.01872513834228321
+num__sleep_hours productivity_0_100,0.004639861636081743
+num__stress_level_0_10^2,0.0026201634986273816
+num__screen_time_hours,0.0010375750623203062
+num__sleep_hours,0.00021901835961666283
+num__work_screen_hours leisure_screen_hours,-0.0005714873515925145
+num__productivity_0_100 social_hours_per_week,-0.0010764921944525496
+num__age sleep_hours,-0.0010777783928655916
