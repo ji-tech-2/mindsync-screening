@@ -1,0 +1,39 @@
+# --- 1. Version Control (Fixes space typo) ---
+.git
+.gitignore
+
+# --- 2. Docker Metadata ---
+.dockerignore
+Dockerfile
+
+# --- 3. Secrets & Env (CRITICAL) ---
+# You had a space in ". env". Fix this to prevent leaking secrets!
+.env
+.venv
+venv/
+
+# --- 4. Python Bytecode & Build Artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- 5. Data Science Junk (NEW) ---
+# You don't want these in production:
+*.ipynb
+*.csv
+*.xlsx
+*.json
+# (Be careful not to ignore your model files, usually .pkl)
+
+# --- 6. System & IDE Files ---
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,32 @@
+# --- Python Basics ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+
+# --- Machine Learning Artifacts ---
+# I removed *.pkl so your 14KB model WILL be committed.
+# Only ignore huge files if you add them later.
+*.h5
+*.pt
+*.pth
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# --- Environment & Secrets ---
+.env
+.env.local
+
+# --- IDE Settings ---
+.vscode/
+.idea/
+
+# --- Operating System ---
+.DS_Store
+Thumbs.db
