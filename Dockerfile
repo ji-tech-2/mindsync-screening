@@ -26,4 +26,4 @@ EXPOSE 5000
 
 # 8. Run Command
 # We force Gunicorn to bind to 5000 to match your expectations
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+CMD ["python", "app.py"]
