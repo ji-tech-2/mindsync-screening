@@ -300,6 +300,8 @@ def predict():
             df = pd.DataFrame(json_input)
 
         prediction = model.predict(df)
+
+        prediction = np.clip(prediction, 0, 100)
         
         return jsonify({
             "prediction": prediction.tolist(),
