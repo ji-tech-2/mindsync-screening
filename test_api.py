@@ -11,7 +11,7 @@ sample_data = {
     "gender": "Female",
     "occupation": "Employed",
     "work_mode": "Remote",
-    "screen_time_hours": 10.79,
+    # "screen_time_hours": 10.79,
     "work_screen_hours": 5.44,
     "leisure_screen_hours": 5.35,
     "sleep_hours": 6.63,
