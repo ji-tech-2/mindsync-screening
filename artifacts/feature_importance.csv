@@ -1,12 +1,12 @@
 Feature,Importance
-num__stress_level_0_10,0.27983586391531745
-num__productivity_0_100,0.1393325950125454
-num__sleep_quality_1_5^2,0.11527331359207107
-num__stress_level_0_10 productivity_0_100,0.05603800340226332
-num__exercise_minutes_per_week,0.019983772690404834
-num__sleep_hours productivity_0_100,0.004293812178433521
-num__stress_level_0_10^2,0.0007651426697600549
-num__sleep_hours,0.0007166955845345546
-num__productivity_0_100 social_hours_per_week,-0.00031017269502976453
-num__age sleep_hours,-0.0009660528345364794
-num__work_screen_hours leisure_screen_hours,-0.0037296838934508746
+num__stress_level_0_10,0.29254901890471213
+num__productivity_0_100,0.14848911706011264
+num__sleep_quality_1_5^2,0.1329423208607307
+num__stress_level_0_10 productivity_0_100,0.045979071800957394
+num__exercise_minutes_per_week,0.017780115642781813
+num__stress_level_0_10^2,0.007254205126109281
+num__sleep_hours productivity_0_100,0.003582124109215057
+num__sleep_hours,0.0026682371627852032
+num__productivity_0_100 social_hours_per_week,-0.0015750438462277306
+num__age sleep_hours,-0.0018764164844536468
+num__work_screen_hours leisure_screen_hours,-0.0024765777703573575

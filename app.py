@@ -8,10 +8,10 @@ import numpy as np
 # Pickle needs these libraries loaded to reconstruct the pipeline
 from sklearn.base import BaseEstimator, RegressorMixin 
 from sklearn.preprocessing import (
-    StandardScaler,
-    OneHotEncoder,
-    PolynomialFeatures,
-    PowerTransformer,
+    StandardScaler, 
+    OneHotEncoder, 
+    PolynomialFeatures, 
+    PowerTransformer, 
     FunctionTransformer
 )
 
@@ -31,7 +31,7 @@ def clean_occupation_column(df):
     df_copy = df.copy()
     if 'occupation' in df_copy.columns:
         df_copy['occupation'] = df_copy['occupation'].replace(
-            ['Unemployed', 'Retired'], 'Other'
+            ['Unemployed', 'Retired'], 'Unemployed'
         )
     return df_copy
 
@@ -300,8 +300,6 @@ def predict():
             df = pd.DataFrame(json_input)
 
         prediction = model.predict(df)
-
-        prediction = np.clip(prediction, 0, 100)
         
         return jsonify({
             "prediction": prediction.tolist(),
@@ -315,6 +313,4 @@ def predict():
         }), 400
 
 if __name__ == '__main__':
-    from waitress import serve
-    print("Starting production server with Waitress on port 5000...")
-    serve(app, host='0.0.0.0', port=5000, threads=4)
+    app.run(debug=True, host='0.0.0.0', port=5000)
