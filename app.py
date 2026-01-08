@@ -20,6 +20,9 @@ app = Flask(__name__)
 
 # Configuration
 MODEL_PATH = os.path.join('artifacts', 'model.pkl')
+PREPROCESSOR_PATH = os.path.join('artifacts', 'preprocessor.pkl')
+COEFFICIENTS_PATH = os.path.join('artifacts', 'model_coefficients.csv')
+HEALTHY_CLUSTER_PATH = os.path.join('artifacts', 'healthy_cluster_avg.csv')
 
 # --- 2. DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
@@ -258,7 +261,7 @@ class LinearRegressionRidge(BaseEstimator, RegressorMixin):
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - (ss_res / ss_tot)
 
-# --- 4. LOAD MODEL ---
+# --- 4. LOAD MODEL AND PREPROCESSOR ---
 def load_model():
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
@@ -266,6 +269,28 @@ def load_model():
     with open(MODEL_PATH, 'rb') as file:
         model = pickle.load(file)
     return model
+
+def load_preprocessor():
+    if not os.path.exists(PREPROCESSOR_PATH):
+        raise FileNotFoundError(f"Preprocessor file not found at {PREPROCESSOR_PATH}")
+    
+    with open(PREPROCESSOR_PATH, 'rb') as file:
+        preprocessor = pickle.load(file)
+    return preprocessor
+
+def load_healthy_cluster():
+    if not os.path.exists(HEALTHY_CLUSTER_PATH):
+        raise FileNotFoundError(f"Healthy cluster file not found at {HEALTHY_CLUSTER_PATH}")
+    
+    df = pd.read_csv(HEALTHY_CLUSTER_PATH)
+    return df
+
+def load_coefficients():
+    if not os.path.exists(COEFFICIENTS_PATH):
+        raise FileNotFoundError(f"Coefficients file not found at {COEFFICIENTS_PATH}")
+    
+    df = pd.read_csv(COEFFICIENTS_PATH)
+    return df
 
 # Load model inside a Try/Except block to catch the specific error
 try:
@@ -275,6 +300,75 @@ except Exception as e:
     # This print is crucial for debugging
     print(f"CRITICAL ERROR loading model: {e}")
     model = None
+
+# Load preprocessor and supporting data
+try:
+    preprocessor = load_preprocessor()
+    healthy_cluster_df = load_healthy_cluster()
+    coefficients_df = load_coefficients()
+    print(f"Successfully loaded preprocessor and analysis data")
+except Exception as e:
+    print(f"WARNING: Could not load analysis components: {e}")
+    preprocessor = None
+    healthy_cluster_df = None
+    coefficients_df = None
+
+def analyze_wellness_factors(user_df):
+    """
+    Analyze wellness factors by comparing healthy cluster vs user input.
+    Returns top positive and negative contributing factors.
+    """
+    if preprocessor is None or healthy_cluster_df is None or coefficients_df is None:
+        return None
+    
+    try:
+        # Preprocess both inputs
+        healthy_preprocessed = preprocessor.transform(healthy_cluster_df)
+        user_preprocessed = preprocessor.transform(user_df)
+        
+        # Convert to arrays if sparse
+        if hasattr(healthy_preprocessed, 'toarray'):
+            healthy_arr = healthy_preprocessed.toarray()[0]
+            user_arr = user_preprocessed.toarray()[0]
+        else:
+            healthy_arr = healthy_preprocessed[0]
+            user_arr = user_preprocessed[0]
+        
+        # Calculate impact scores
+        results = []
+        for idx, row in coefficients_df.iterrows():
+            if idx < len(healthy_arr):
+                feature_name = row['Feature']
+                coefficient = row['Coefficient']
+                healthy_value = healthy_arr[idx]
+                user_value = user_arr[idx]
+                difference = healthy_value - user_value
+                impact_score = difference * coefficient
+                
+                results.append({
+                    'feature': feature_name,
+                    'impact_score': float(impact_score),
+                    'coefficient': float(coefficient),
+                    'healthy_value': float(healthy_value),
+                    'user_value': float(user_value),
+                    'gap': float(difference)
+                })
+        
+        # Separate and sort
+        areas_for_improvement = [r for r in results if r['impact_score'] > 0]
+        strengths = [r for r in results if r['impact_score'] < 0]
+        
+        areas_for_improvement.sort(key=lambda x: x['impact_score'], reverse=True)
+        strengths.sort(key=lambda x: abs(x['impact_score']), reverse=True)
+        
+        return {
+            'areas_for_improvement': areas_for_improvement[:5],  # Top 5 gaps to address
+            'strengths': strengths[:5]   # Top 5 factors user excels at
+        }
+    
+    except Exception as e:
+        print(f"Error in wellness factor analysis: {e}")
+        return None
 
 @app.route('/')
 def home():
@@ -299,12 +393,22 @@ def predict():
         else:
             df = pd.DataFrame(json_input)
 
+        # Make prediction
         prediction = model.predict(df)
         
-        return jsonify({
+        # Analyze wellness factors
+        wellness_analysis = analyze_wellness_factors(df)
+        
+        response = {
             "prediction": prediction.tolist(),
             "status": "success"
-        })
+        }
+        
+        # Add wellness analysis if available
+        if wellness_analysis:
+            response["wellness_analysis"] = wellness_analysis
+        
+        return jsonify(response)
 
     except Exception as e:
         return jsonify({
