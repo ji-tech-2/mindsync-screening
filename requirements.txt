@@ -4,6 +4,10 @@ pandas==2.2.3
 numpy==1.26.4
 requests==2.32.5
 
+# --- AI & Environment (NEW) ---
+google-genai==1.57.0
+python-dotenv==1.2.1
+
 # --- Required for your Custom Class ---
 # Your class inherits from sklearn.base and uses StandardScaler
 scikit-learn==1.5.2
