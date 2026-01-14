@@ -1,20 +1,17 @@
 import requests
 import json
 
-# API Endpoint
-url = "http://localhost:5000/predict"
-
-
+# API Endpoints
+predict_url = "http://localhost:5000/predict"
+advice_url = "http://localhost:5000/advice"
 
 sample_data = {
     "age": 33,
     "gender": "Female",
     "occupation": "Employed",
     "work_mode": "Remote",
-    # "screen_time_hours": 10.79,
     "work_screen_hours": 5.44,
     "leisure_screen_hours": 5.35,
-    # "sleep_hours": 6.63,
     "sleep_hours": 4.5,
     "sleep_quality_1_5": 1,
     "stress_level_0_10": 9.3,
@@ -23,41 +20,38 @@ sample_data = {
     "social_hours_per_week": 0.7
 }
 
-print(f"Sending request to {url}...")
-print("Input Data:")
-print(json.dumps(sample_data, indent=2))
-
+print(f"\n--- STEP 1: PREDICT ---")
 try:
-    response = requests.post(
-        url, 
-        headers={"Content-Type": "application/json"},
-        data=json.dumps(sample_data)
-    )
+    # 1. Request Predict
+    res_predict = requests.post(predict_url, json=sample_data)
     
-    if response.status_code == 200:
-        data = response.json()
+    if res_predict.status_code == 200:
+        data_predict = res_predict.json()
+        print("✅ Predict Sukses!")
+        print(f"Score: {data_predict['prediction'][0]}")
+        print(f"Category: {data_predict['mental_health_category']}")
         
-        print("\n✅ PREDIKSI SUKSES!")
-        print(f"Skor: {data['prediction'][0]:.2f}")
-
-        print("="*60)
+        # 2. Request Advice (Pakai data output dari Predict)
+        print(f"\n--- STEP 2: GET ADVICE ---")
         
-        if 'wellness_analysis' in data:
-            print("📊 Wellness Analysis:")
-            print(json.dumps(data['wellness_analysis'], indent=2))
+        # Susun payload persis seperti output /predict
+        advice_payload = {
+            "prediction": data_predict['prediction'], # Bisa kirim list [35.5]
+            "mental_health_category": data_predict['mental_health_category'],
+            "wellness_analysis": data_predict['wellness_analysis']
+        }
+        
+        res_advice = requests.post(advice_url, json=advice_payload)
+        
+        if res_advice.status_code == 200:
+            data_advice = res_advice.json()
+            print("✅ Advice Sukses!")
+            print(json.dumps(data_advice['ai_advice'], indent=2))
         else:
-            print("⚠️ Field 'wellness_analysis' tidak ditemukan dalam response.")
-        
-        if 'ai_advice' in data:
-            print("="*60)
-            print("\n🤖 AI Advice:")
-            print(data['ai_advice'])
+            print(f"❌ Advice Error: {res_advice.text}")
             
-        print("="*60)
-        
     else:
-        print(f"\n❌ Error Status Code: {response.status_code}")
-        print(response.text)
+        print(f"❌ Predict Error: {res_predict.text}")
 
-except requests.exceptions.ConnectionError:
-    print("\n❌ Gagal connect. Pastikan 'python app.py' sudah jalan di terminal lain!")
+except Exception as e:
+    print(f"Connection Error: {e}")
