@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. Copy Code and Artifacts
 COPY artifacts/ ./artifacts/
-COPY .env .env
 COPY app.py .
 
 # 6. Security: Run as non-root user
