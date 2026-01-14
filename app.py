@@ -519,21 +519,44 @@ def predict():
         
         response = {
             "prediction": prediction.tolist(),
+            "mental_health_category": mental_health_category,
             "status": "success"
         }
         
-        # Add wellness analysis and AI advice if available
+        # Add wellness analysis if available
         if wellness_analysis:
             response["wellness_analysis"] = wellness_analysis
-            
-            # Call AI
-            response["ai_advice"] = get_ai_advice(
-                prediction[0], 
-                mental_health_category, 
-                wellness_analysis
-            )
         
         return jsonify(response)
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 400
+
+@app.route('/advice', methods=['POST'])
+def advice():
+    try:
+        json_input = request.get_json()
+        
+        prediction_score = json_input.get('prediction_score')
+        if prediction_score is None:
+            pred_list = json_input.get('prediction')
+            if pred_list and isinstance(pred_list, list):
+                prediction_score = pred_list[0]
+            else:
+                prediction_score = pred_list
+
+        category = json_input.get('mental_health_category')
+        analysis = json_input.get('wellness_analysis')
+
+        if prediction_score is None or category is None or analysis is None:
+            return jsonify({"error": "Missing inputs from /predict result", "status": "error"}), 400
+
+        ai_advice = get_ai_advice(prediction_score, category, analysis)
+
+        return jsonify({"ai_advice": ai_advice, "status": "success"})
 
     except Exception as e:
         return jsonify({
