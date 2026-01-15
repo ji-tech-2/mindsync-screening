@@ -31,6 +31,10 @@ try:
         print(f"Score: {data_predict['prediction'][0]}")
         print(f"Category: {data_predict['mental_health_category']}")
         
+        # Tambahkan output prediction lengkap
+        print("\n--- PREDICTION RESULT ---")
+        print(json.dumps(data_predict, indent=2))
+        
         # 2. Request Advice (Pakai data output dari Predict)
         print(f"\n--- STEP 2: GET ADVICE ---")
         
