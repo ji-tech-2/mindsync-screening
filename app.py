@@ -7,6 +7,9 @@ import json
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+import uuid
+import threading
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -32,6 +35,11 @@ MODEL_PATH = os.path.join('artifacts', 'model.pkl')
 PREPROCESSOR_PATH = os.path.join('artifacts', 'preprocessor.pkl')
 COEFFICIENTS_PATH = os.path.join('artifacts', 'model_coefficients.csv')
 HEALTHY_CLUSTER_PATH = os.path.join('artifacts', 'healthy_cluster_avg.csv')
+
+# In-memory storage untuk prediction results
+# Format: {prediction_id: {status, result, created_at}}
+prediction_store = {}
+prediction_lock = threading.Lock()
 
 # --- 2. DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
@@ -492,6 +500,52 @@ def home():
         "message": "Model API is running."
     })
 
+def process_prediction(prediction_id, json_input):
+    """Background task untuk memproses prediction"""
+    try:
+        # Handle dict vs list input
+        if isinstance(json_input, dict):
+            df = pd.DataFrame([json_input])
+        else:
+            df = pd.DataFrame(json_input)
+
+        # Make prediction
+        prediction = model.predict(df)
+        prediction_score = float(prediction[0])
+        
+        # Analyze wellness factors
+        wellness_analysis = analyze_wellness_factors(df)
+        
+        # Categorize the mental health score
+        mental_health_category = categorize_mental_health_score(prediction_score)
+        
+        # Get AI advice
+        ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
+        
+        # Update store dengan hasil
+        with prediction_lock:
+            prediction_store[prediction_id] = {
+                "status": "ready",
+                "result": {
+                    "prediction_score": prediction_score,
+                    "health_level": mental_health_category,
+                    "wellness_analysis": wellness_analysis,
+                    "advice": ai_advice
+                },
+                "created_at": prediction_store[prediction_id]["created_at"],
+                "completed_at": datetime.now().isoformat()
+            }
+            
+    except Exception as e:
+        # Update store dengan error
+        with prediction_lock:
+            prediction_store[prediction_id] = {
+                "status": "error",
+                "error": str(e),
+                "created_at": prediction_store[prediction_id]["created_at"],
+                "completed_at": datetime.now().isoformat()
+            }
+
 @app.route('/predict', methods=['POST'])
 def predict():
     if not model:
@@ -502,32 +556,31 @@ def predict():
     try:
         json_input = request.get_json()
         
-        # Handle dict vs list input
-        if isinstance(json_input, dict):
-            df = pd.DataFrame([json_input])
-        else:
-            df = pd.DataFrame(json_input)
-
-        # Make prediction
-        prediction = model.predict(df)
+        # Generate unique prediction_id
+        prediction_id = str(uuid.uuid4())
         
-        # Analyze wellness factors
-        wellness_analysis = analyze_wellness_factors(df)
+        # Initialize status sebagai processing
+        with prediction_lock:
+            prediction_store[prediction_id] = {
+                "status": "processing",
+                "result": None,
+                "created_at": datetime.now().isoformat()
+            }
         
-        # Categorize the mental health score (for AI advice)
-        mental_health_category = categorize_mental_health_score(prediction[0])
+        # Start background processing
+        thread = threading.Thread(
+            target=process_prediction,
+            args=(prediction_id, json_input)
+        )
+        thread.daemon = True
+        thread.start()
         
-        response = {
-            "prediction": prediction.tolist(),
-            "mental_health_category": mental_health_category,
-            "status": "success"
-        }
-        
-        # Add wellness analysis if available
-        if wellness_analysis:
-            response["wellness_analysis"] = wellness_analysis
-        
-        return jsonify(response)
+        # Return prediction_id immediately
+        return jsonify({
+            "prediction_id": prediction_id,
+            "status": "processing",
+            "message": "Prediction is being processed. Use /result/<prediction_id> to check status."
+        }), 202
 
     except Exception as e:
         return jsonify({
@@ -535,8 +588,45 @@ def predict():
             "status": "error"
         }), 400
 
+@app.route('/result/<prediction_id>', methods=['GET'])
+def get_result(prediction_id):
+    """Endpoint untuk polling hasil prediction"""
+    with prediction_lock:
+        prediction_data = prediction_store.get(prediction_id)
+    
+    if not prediction_data:
+        return jsonify({
+            "status": "not_found",
+            "message": "Prediction ID not found"
+        }), 404
+    
+    status = prediction_data["status"]
+    
+    if status == "processing":
+        return jsonify({
+            "status": "processing",
+            "message": "Prediction is still being processed. Please try again in a moment."
+        }), 202
+    
+    elif status == "ready":
+        return jsonify({
+            "status": "ready",
+            "result": prediction_data["result"],
+            "created_at": prediction_data["created_at"],
+            "completed_at": prediction_data["completed_at"]
+        }), 200
+    
+    elif status == "error":
+        return jsonify({
+            "status": "error",
+            "error": prediction_data["error"],
+            "created_at": prediction_data["created_at"],
+            "completed_at": prediction_data.get("completed_at")
+        }), 500
+
 @app.route('/advice', methods=['POST'])
 def advice():
+    """Legacy endpoint - masih bisa digunakan untuk backward compatibility"""
     try:
         json_input = request.get_json()
         

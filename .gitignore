@@ -30,3 +30,7 @@ env/
 # --- Operating System ---
 .DS_Store
 Thumbs.db
+
+# --- Testing Files ---
+test_*.py
+test_*.html
