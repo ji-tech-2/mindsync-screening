@@ -495,6 +495,8 @@ try:
         host=os.getenv('VALKEY_HOST', 'localhost'),
         port=int(os.getenv('VALKEY_PORT', 6379)),
         db=int(os.getenv('VALKEY_DB', 0)),
+        username=os.getenv('VALKEY_USERNAME'),
+        password=os.getenv('VALKEY_PASSWORD'),
         decode_responses=True,
         socket_timeout=5,
         socket_connect_timeout=5,
