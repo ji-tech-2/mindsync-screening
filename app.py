@@ -564,7 +564,7 @@ def home():
         "message": "Model API is running."
     })
 
-def process_prediction(prediction_id, json_input):
+def process_prediction(prediction_id, json_input, created_at=None):
     """Background task untuk memproses prediction"""
     try:
         # Handle dict vs list input
@@ -588,7 +588,6 @@ def process_prediction(prediction_id, json_input):
         
         # Update store dengan hasil
         try:
-            existing_data = fetch_prediction(prediction_id)
             store_prediction(prediction_id, {
                 "status": "ready",
                 "result": {
@@ -597,7 +596,7 @@ def process_prediction(prediction_id, json_input):
                     "wellness_analysis": wellness_analysis,
                     "advice": ai_advice
                 },
-                "created_at": existing_data["created_at"] if existing_data else datetime.now().isoformat(),
+                "created_at": created_at if created_at else datetime.now().isoformat(),
                 "completed_at": datetime.now().isoformat()
             })
         except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
@@ -606,11 +605,10 @@ def process_prediction(prediction_id, json_input):
     except Exception as e:
         # Update store dengan error
         try:
-            existing_data = fetch_prediction(prediction_id)
             store_prediction(prediction_id, {
                 "status": "error",
                 "error": str(e),
-                "created_at": existing_data["created_at"] if existing_data else datetime.now().isoformat(),
+                "created_at": created_at if created_at else datetime.now().isoformat(),
                 "completed_at": datetime.now().isoformat()
             })
         except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
@@ -628,13 +626,14 @@ def predict():
         
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
+        created_at = datetime.now().isoformat()
         
         # Initialize status sebagai processing
         try:
             store_prediction(prediction_id, {
                 "status": "processing",
                 "result": None,
-                "created_at": datetime.now().isoformat()
+                "created_at": created_at,
             })
         except (ConnectionError, TimeoutError, RuntimeError) as e:
             return jsonify({
@@ -646,7 +645,7 @@ def predict():
         # Start background processing
         thread = threading.Thread(
             target=process_prediction,
-            args=(prediction_id, json_input)
+            args=(prediction_id, json_input, created_at)
         )
         thread.daemon = True
         thread.start()
