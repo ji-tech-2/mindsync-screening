@@ -66,6 +66,7 @@ jobs:
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
               -p ${{ env.HOST_PORT }}:${{ env.APP_PORT }} \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
               ${{ env.IMAGE_NAME }}:latest
             
             docker image prune -f
