@@ -26,3 +26,4 @@ pytz==2025.2
 certifi==2025.8.3
 urllib3==2.5.0
 waitress>=3.0
+valkey==6.1.1
