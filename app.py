@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import uuid
 import threading
 from datetime import datetime
+import valkey
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,11 +36,6 @@ MODEL_PATH = os.path.join('artifacts', 'model.pkl')
 PREPROCESSOR_PATH = os.path.join('artifacts', 'preprocessor.pkl')
 COEFFICIENTS_PATH = os.path.join('artifacts', 'model_coefficients.csv')
 HEALTHY_CLUSTER_PATH = os.path.join('artifacts', 'healthy_cluster_avg.csv')
-
-# In-memory storage untuk prediction results
-# Format: {prediction_id: {status, result, created_at}}
-prediction_store = {}
-prediction_lock = threading.Lock()
 
 # --- 2. DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
@@ -493,6 +489,74 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result):
             "factors": {}
         }
 
+# Valkey client for storing prediction results
+try:
+    valkey_client = valkey.Valkey(
+        host=os.getenv('VALKEY_HOST', 'localhost'),
+        port=int(os.getenv('VALKEY_PORT', 6379)),
+        db=int(os.getenv('VALKEY_DB', 0)),
+        username=os.getenv('VALKEY_USERNAME'),
+        password=os.getenv('VALKEY_PASSWORD'),
+        decode_responses=True,
+        socket_timeout=5,
+        socket_connect_timeout=5,
+        retry_on_timeout=True
+    )
+    # Test connection
+    valkey_client.ping()
+    print("Successfully connected to Valkey")
+except Exception as e:
+    print(f"WARNING: Could not connect to Valkey: {e}")
+    print("Application will continue but prediction storage may fail")
+    valkey_client = None
+
+# Helper functions for Valkey storage
+def store_prediction(prediction_id, prediction_data):
+    """Store prediction data in Valkey with 24-hour expiration"""
+    if valkey_client is None:
+        raise ConnectionError("Valkey client is not initialized")
+    
+    try:
+        key = f"prediction:{prediction_id}"
+        valkey_client.setex(
+            key,
+            86400,  # 24 hours in seconds
+            json.dumps(prediction_data)
+        )
+    except valkey.exceptions.ConnectionError as e:
+        print(f"Valkey connection error in store_prediction: {e}")
+        raise ConnectionError(f"Failed to store prediction: Valkey connection error")
+    except valkey.exceptions.TimeoutError as e:
+        print(f"Valkey timeout error in store_prediction: {e}")
+        raise TimeoutError(f"Failed to store prediction: Valkey timeout")
+    except Exception as e:
+        print(f"Unexpected error in store_prediction: {e}")
+        raise RuntimeError(f"Failed to store prediction: {str(e)}")
+
+def fetch_prediction(prediction_id):
+    """Fetch prediction data from Valkey"""
+    if valkey_client is None:
+        raise ConnectionError("Valkey client is not initialized")
+    
+    try:
+        key = f"prediction:{prediction_id}"
+        data = valkey_client.get(key)
+        if data:
+            return json.loads(data)
+        return None
+    except valkey.exceptions.ConnectionError as e:
+        print(f"Valkey connection error in fetch_prediction: {e}")
+        raise ConnectionError(f"Failed to fetch prediction: Valkey connection error")
+    except valkey.exceptions.TimeoutError as e:
+        print(f"Valkey timeout error in fetch_prediction: {e}")
+        raise TimeoutError(f"Failed to fetch prediction: Valkey timeout")
+    except json.JSONDecodeError as e:
+        print(f"JSON decode error in fetch_prediction: {e}")
+        raise ValueError(f"Failed to parse prediction data")
+    except Exception as e:
+        print(f"Unexpected error in fetch_prediction: {e}")
+        raise RuntimeError(f"Failed to fetch prediction: {str(e)}")
+
 @app.route('/')
 def home():
     return jsonify({
@@ -500,7 +564,7 @@ def home():
         "message": "Model API is running."
     })
 
-def process_prediction(prediction_id, json_input):
+def process_prediction(prediction_id, json_input, created_at=None):
     """Background task untuk memproses prediction"""
     try:
         # Handle dict vs list input
@@ -523,8 +587,8 @@ def process_prediction(prediction_id, json_input):
         ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
         
         # Update store dengan hasil
-        with prediction_lock:
-            prediction_store[prediction_id] = {
+        try:
+            store_prediction(prediction_id, {
                 "status": "ready",
                 "result": {
                     "prediction_score": prediction_score,
@@ -532,19 +596,23 @@ def process_prediction(prediction_id, json_input):
                     "wellness_analysis": wellness_analysis,
                     "advice": ai_advice
                 },
-                "created_at": prediction_store[prediction_id]["created_at"],
+                "created_at": created_at if created_at else datetime.now().isoformat(),
                 "completed_at": datetime.now().isoformat()
-            }
+            })
+        except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
+            print(f"Failed to store prediction result: {storage_error}")
             
     except Exception as e:
         # Update store dengan error
-        with prediction_lock:
-            prediction_store[prediction_id] = {
+        try:
+            store_prediction(prediction_id, {
                 "status": "error",
                 "error": str(e),
-                "created_at": prediction_store[prediction_id]["created_at"],
+                "created_at": created_at if created_at else datetime.now().isoformat(),
                 "completed_at": datetime.now().isoformat()
-            }
+            })
+        except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
+            print(f"Failed to store error status: {storage_error}")
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -558,19 +626,26 @@ def predict():
         
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
+        created_at = datetime.now().isoformat()
         
         # Initialize status sebagai processing
-        with prediction_lock:
-            prediction_store[prediction_id] = {
+        try:
+            store_prediction(prediction_id, {
                 "status": "processing",
                 "result": None,
-                "created_at": datetime.now().isoformat()
-            }
+                "created_at": created_at,
+            })
+        except (ConnectionError, TimeoutError, RuntimeError) as e:
+            return jsonify({
+                "error": "Storage service unavailable. Please try again later.",
+                "details": str(e),
+                "status": "error"
+            }), 503
         
         # Start background processing
         thread = threading.Thread(
             target=process_prediction,
-            args=(prediction_id, json_input)
+            args=(prediction_id, json_input, created_at)
         )
         thread.daemon = True
         thread.start()
@@ -591,8 +666,14 @@ def predict():
 @app.route('/result/<prediction_id>', methods=['GET'])
 def get_result(prediction_id):
     """Endpoint untuk polling hasil prediction"""
-    with prediction_lock:
-        prediction_data = prediction_store.get(prediction_id)
+    try:
+        prediction_data = fetch_prediction(prediction_id)
+    except (ConnectionError, TimeoutError, RuntimeError) as e:
+        return jsonify({
+            "status": "error",
+            "message": "Storage service unavailable. Please try again later.",
+            "details": str(e)
+        }), 503
     
     if not prediction_data:
         return jsonify({
