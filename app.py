@@ -491,7 +491,8 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result):
 
 # Valkey client for storing prediction results
 try:
-    valkey_url = os.getenv('VALKEY_URL')
+    print("Connecting to Valkey...")
+    valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
 
     valkey_client = valkey.from_url(
         valkey_url,
