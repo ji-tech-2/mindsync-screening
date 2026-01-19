@@ -491,16 +491,14 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result):
 
 # Valkey client for storing prediction results
 try:
-    valkey_client = valkey.Valkey(
-        host=os.getenv('VALKEY_HOST', 'localhost'),
-        port=int(os.getenv('VALKEY_PORT', 6379)),
-        db=int(os.getenv('VALKEY_DB', 0)),
-        username=os.getenv('VALKEY_USERNAME'),
-        password=os.getenv('VALKEY_PASSWORD'),
-        decode_responses=True,
-        socket_timeout=5,
+    valkey_url = os.getenv('VALKEY_URL')
+
+    valkey_client = valkey.from_url(
+        valkey_url,
         socket_connect_timeout=5,
-        retry_on_timeout=True
+        retry_on_timeout=True,
+        socket_keepalive=True,
+        health_check_interval=10
     )
     # Test connection
     valkey_client.ping()
