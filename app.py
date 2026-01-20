@@ -11,13 +11,16 @@ import uuid
 import threading
 from datetime import datetime
 import valkey
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import UUID
 
 # Load environment variables from .env file
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+DATABASE_URL = os.getenv('DATABASE_URL')
 
-# --- 1. ADD ALL PREPROCESSING IMPORTS ---
+# --- ADD ALL PREPROCESSING IMPORTS ---
 # Pickle needs these libraries loaded to reconstruct the pipeline
 from sklearn.base import BaseEstimator, RegressorMixin 
 from sklearn.preprocessing import (
@@ -28,8 +31,10 @@ from sklearn.preprocessing import (
     FunctionTransformer
 )
 
-
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
 # Configuration
 MODEL_PATH = os.path.join('artifacts', 'model.pkl')
@@ -37,7 +42,67 @@ PREPROCESSOR_PATH = os.path.join('artifacts', 'preprocessor.pkl')
 COEFFICIENTS_PATH = os.path.join('artifacts', 'model_coefficients.csv')
 HEALTHY_CLUSTER_PATH = os.path.join('artifacts', 'healthy_cluster_avg.csv')
 
-# --- 2. DEFINE THE CUSTOM CLEANER FUNCTION ---
+# ===================== #
+#    DATABASE MODELS    #
+# ===================== #
+
+# 1. TABEL PREDICTIONS 
+class Predictions(db.Model):
+    __tablename__ = 'PREDICTIONS' # Sesuai ERD
+    pred_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = db.Column(UUID(as_uuid=True), nullable=True)
+    guest_id = db.Column(UUID(as_uuid=True), nullable=True)
+    pred_date = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Input Data
+    screen_time = db.Column(db.Float)
+    work_screen = db.Column(db.Float)
+    leisure_screen = db.Column(db.Float)
+    sleep_hours = db.Column(db.Float)
+    sleep_quality = db.Column(db.Integer)
+    stress_level = db.Column(db.Float)
+    productivity = db.Column(db.Float)
+    exercise = db.Column(db.Integer)
+    social = db.Column(db.Float)
+    
+    # Output Data
+    pred_score = db.Column(db.Float) 
+    
+    # Relation (PRED_DETAILS)
+    details = db.relationship('PredDetails', backref='prediction', lazy=True, cascade="all, delete-orphan")
+
+# 2. TABEL PRED_DETAILS
+class PredDetails(db.Model):
+    __tablename__ = 'PRED_DETAILS'
+    detail_id = db.Column(db.Integer, primary_key=True)
+    pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('PREDICTIONS.pred_id'), nullable=False)
+    factor_name = db.Column(db.String(100))
+    impact_score = db.Column(db.Float)
+    
+    # Relation (ADVICES & REFERENCES)
+    advices = db.relationship('Advices', backref='detail', lazy=True, cascade="all, delete-orphan")
+    references = db.relationship('References', backref='detail', lazy=True, cascade="all, delete-orphan")
+
+# 3. TABEL ADVICES 
+class Advices(db.Model):
+    __tablename__ = 'ADVICES' 
+    advice_id = db.Column(db.Integer, primary_key=True)
+    detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
+    advice_text = db.Column(db.Text)
+
+# 4. TABEL REFERENCES
+class References(db.Model):
+    __tablename__ = 'REFERENCES'
+    ref_id = db.Column(db.Integer, primary_key=True)
+    detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
+    reference_link = db.Column(db.String(500))
+
+# Create Tables if not exist
+with app.app_context():
+    # db.drop_all() # Uncomment jika ingin reset
+    db.create_all()
+
+# --- DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
 def clean_occupation_column(df):
     """
@@ -51,7 +116,7 @@ def clean_occupation_column(df):
         )
     return df_copy
 
-# --- 3. DEFINE THE CUSTOM MODEL CLASS ---
+# --- DEFINE THE CUSTOM MODEL CLASS ---
 class LinearRegressionRidge(BaseEstimator, RegressorMixin):
     def __init__(self, alpha=1.0, fit_intercept=True, normalize=False, 
                  solver='closed_form', learning_rate=0.01, max_iter=1000, 
@@ -494,6 +559,8 @@ try:
     print("Connecting to Valkey...")
     valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
 
+    print(f"Valkey URL: {valkey_url}")
+
     valkey_client = valkey.from_url(
         valkey_url,
         socket_connect_timeout=5,
@@ -563,55 +630,115 @@ def home():
         "message": "Model API is running."
     })
 
-def process_prediction(prediction_id, json_input, created_at=None):
+def process_prediction(prediction_id, json_input, created_at, app_instance):
     """Background task untuk memproses prediction"""
-    try:
-        # Handle dict vs list input
-        if isinstance(json_input, dict):
-            df = pd.DataFrame([json_input])
-        else:
-            df = pd.DataFrame(json_input)
+    with app_instance.app_context():
+        try:
+            # Handle dict vs list input
+            if isinstance(json_input, dict):
+                df = pd.DataFrame([json_input])
+            else:
+                df = pd.DataFrame(json_input)
 
-        # Make prediction
-        prediction = model.predict(df)
-        prediction_score = float(prediction[0])
-        
-        # Analyze wellness factors
-        wellness_analysis = analyze_wellness_factors(df)
-        
-        # Categorize the mental health score
-        mental_health_category = categorize_mental_health_score(prediction_score)
-        
-        # Get AI advice
-        ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
-        
-        # Update store dengan hasil
-        try:
-            store_prediction(prediction_id, {
-                "status": "ready",
-                "result": {
-                    "prediction_score": prediction_score,
-                    "health_level": mental_health_category,
-                    "wellness_analysis": wellness_analysis,
-                    "advice": ai_advice
-                },
-                "created_at": created_at if created_at else datetime.now().isoformat(),
-                "completed_at": datetime.now().isoformat()
-            })
-        except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
-            print(f"Failed to store prediction result: {storage_error}")
+            # Make prediction
+            prediction = model.predict(df)
+            prediction_score = float(prediction[0])
             
-    except Exception as e:
-        # Update store dengan error
-        try:
-            store_prediction(prediction_id, {
-                "status": "error",
-                "error": str(e),
-                "created_at": created_at if created_at else datetime.now().isoformat(),
-                "completed_at": datetime.now().isoformat()
-            })
-        except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
-            print(f"Failed to store error status: {storage_error}")
+            # Analyze wellness factors
+            wellness_analysis = analyze_wellness_factors(df)
+            
+            # Categorize the mental health score
+            mental_health_category = categorize_mental_health_score(prediction_score)
+            
+            # Get AI advice
+            ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
+            
+            # Update store dengan hasil
+            try:
+                store_prediction(prediction_id, {
+                    "status": "ready",
+                    "result": {
+                        "prediction_score": prediction_score,
+                        "health_level": mental_health_category,
+                        "wellness_analysis": wellness_analysis,
+                        "advice": ai_advice
+                    },
+                    "created_at": created_at if created_at else datetime.now().isoformat(),
+                    "completed_at": datetime.now().isoformat()
+                })
+            except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
+                print(f"Failed to store prediction result: {storage_error}")
+
+            # Save to database
+            try:
+                u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+                
+                new_pred = Predictions(
+                    pred_id=uuid.UUID(prediction_id),
+                    user_id=u_id,
+                    
+                    screen_time=float(json_input.get('screen_time_hours', 0)),
+                    work_screen=float(json_input.get('work_screen_hours', 0)),
+                    leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
+                    sleep_hours=float(json_input.get('sleep_hours', 0)),
+                    stress_level=float(json_input.get('stress_level_0_10', 0)),
+                    productivity=float(json_input.get('productivity_0_100', 0)),
+                    social=float(json_input.get('social_hours_per_week', 0)),
+                    
+                    sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
+                    exercise=int(json_input.get('exercise_minutes_per_week', 0)),
+                    
+                    pred_score=prediction_score
+                )
+                db.session.add(new_pred)
+                db.session.flush()  # Generate ID
+                
+                if wellness_analysis:
+                    for item in wellness_analysis.get('areas_for_improvement', []):
+                        fname = item['feature']
+                        
+                        detail = PredDetails(
+                            pred_id=new_pred.pred_id,
+                            factor_name=fname,
+                            impact_score=float(item['impact_score'])
+                        )
+                        db.session.add(detail)
+                        db.session.flush()
+                        
+                        factor_data = ai_advice.get('factors', {}).get(fname, {})
+                        
+                        # Advices
+                        for tip in factor_data.get('advices', []):
+                            db.session.add(Advices(
+                                detail_id=detail.detail_id,
+                                advice_text=tip
+                            ))
+                            
+                        # References
+                        for ref in factor_data.get('references', []):
+                            db.session.add(References(
+                                detail_id=detail.detail_id,
+                                reference_link=ref
+                            ))
+
+                db.session.commit()
+                print(f"💾 SQL Save Completed for {prediction_id}")
+                
+            except Exception as sql_error:
+                db.session.rollback()
+                print(f"⚠️ SQL Save Failed: {sql_error}")
+                
+        except Exception as e:
+            # Update store dengan error
+            try:
+                store_prediction(prediction_id, {
+                    "status": "error",
+                    "error": str(e),
+                    "created_at": created_at if created_at else datetime.now().isoformat(),
+                    "completed_at": datetime.now().isoformat()
+                })
+            except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
+                print(f"Failed to store error status: {storage_error}")
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -644,7 +771,7 @@ def predict():
         # Start background processing
         thread = threading.Thread(
             target=process_prediction,
-            args=(prediction_id, json_input, created_at)
+            args=(prediction_id, json_input, created_at, app)
         )
         thread.daemon = True
         thread.start()
