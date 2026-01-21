@@ -1,7 +1,6 @@
 import pickle
 import pandas as pd
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import os
 import numpy as np
 import json
@@ -31,7 +30,6 @@ from sklearn.preprocessing import (
 
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
 
 # Configuration
 MODEL_PATH = os.path.join('artifacts', 'model.pkl')
@@ -491,14 +489,11 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result):
             "factors": {}
         }
 
-# In-memory storage fallback (untuk development tanpa Valkey)
-in_memory_storage = {}
+# Valkey client for storing prediction results - REQUIRED
+print("Connecting to Valkey...")
+valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
 
-# Valkey client for storing prediction results
 try:
-    print("Connecting to Valkey...")
-    valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
-
     valkey_client = valkey.from_url(
         valkey_url,
         socket_connect_timeout=5,
@@ -509,23 +504,15 @@ try:
     # Test connection
     valkey_client.ping()
     print("✅ Successfully connected to Valkey")
-    USE_IN_MEMORY = False
 except Exception as e:
-    print(f"⚠️  WARNING: Could not connect to Valkey: {e}")
-    print("📝 Using in-memory storage instead (data will be lost on restart)")
-    valkey_client = None
-    USE_IN_MEMORY = True
+    print(f"❌ CRITICAL ERROR: Could not connect to Valkey: {e}")
+    print(f"❌ Application requires Valkey to be running at {valkey_url}")
+    print("❌ Application will exit.")
+    raise SystemExit(f"Failed to connect to Valkey: {e}")
 
-# Helper functions for storage (Valkey or in-memory)
+# Helper functions for Valkey storage
 def store_prediction(prediction_id, prediction_data):
-    """Store prediction data with 24-hour expiration"""
-    if USE_IN_MEMORY:
-        in_memory_storage[prediction_id] = prediction_data
-        return
-    
-    if valkey_client is None:
-        raise ConnectionError("Valkey client is not initialized")
-    
+    """Store prediction data with 24-hour expiration in Valkey"""
     try:
         key = f"prediction:{prediction_id}"
         valkey_client.setex(
@@ -544,13 +531,7 @@ def store_prediction(prediction_id, prediction_data):
         raise RuntimeError(f"Failed to store prediction: {str(e)}")
 
 def fetch_prediction(prediction_id):
-    """Fetch prediction data from storage"""
-    if USE_IN_MEMORY:
-        return in_memory_storage.get(prediction_id)
-    
-    if valkey_client is None:
-        raise ConnectionError("Valkey client is not initialized")
-    
+    """Fetch prediction data from Valkey"""
     try:
         key = f"prediction:{prediction_id}"
         data = valkey_client.get(key)
@@ -571,16 +552,7 @@ def fetch_prediction(prediction_id):
         raise RuntimeError(f"Failed to fetch prediction: {str(e)}")
 
 def update_prediction(prediction_id, update_data):
-    """Update existing prediction data"""
-    if USE_IN_MEMORY:
-        if prediction_id not in in_memory_storage:
-            raise KeyError("Prediction not found")
-        in_memory_storage[prediction_id].update(update_data)
-        return
-    
-    if valkey_client is None:
-        raise ConnectionError("Valkey client is not initialized")
-
+    """Update existing prediction data in Valkey"""
     key = f"prediction:{prediction_id}"
     existing = valkey_client.get(key)
 
