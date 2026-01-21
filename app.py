@@ -13,6 +13,7 @@ from datetime import datetime
 import valkey
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import selectinload
 
 # Load environment variables from .env file
 load_dotenv()
@@ -792,7 +793,10 @@ def read_from_db(prediction_id=None, user_id=None):
                     "error": "Invalid prediction_id format. Must be a valid UUID string.",
                     "status": "bad_request"
                 }
-            pred = Predictions.query.filter_by(pred_id=pred_uuid).first()
+            pred = Predictions.query.options(
+                selectinload(Predictions.details).selectinload(PredDetails.advices),
+                selectinload(Predictions.details).selectinload(PredDetails.references)
+            ).filter_by(pred_id=pred_uuid).first()
             if not pred:
                 return {"error": "Prediction not found", "status": "not_found"}
             
@@ -805,7 +809,10 @@ def read_from_db(prediction_id=None, user_id=None):
                     "error": "Invalid user_id format. Must be a valid UUID string.",
                     "status": "bad_request"
                 }
-            predictions = Predictions.query.filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
+            predictions = Predictions.query.options(
+                selectinload(Predictions.details).selectinload(PredDetails.advices),
+                selectinload(Predictions.details).selectinload(PredDetails.references)
+            ).filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
             if not predictions:
                 return {"error": "No predictions found for this user", "status": "not_found"}
         else:
@@ -835,8 +842,7 @@ def read_from_db(prediction_id=None, user_id=None):
                 "details": []
             }
             
-            details = PredDetails.query.filter_by(pred_id=pred.pred_id).all()
-            for detail in details:
+            for detail in pred.details:
                 detail_data = {
                     "factor_name": detail.factor_name,
                     "impact_score": detail.impact_score,
@@ -844,12 +850,10 @@ def read_from_db(prediction_id=None, user_id=None):
                     "references": []
                 }
                 
-                advices = Advices.query.filter_by(detail_id=detail.detail_id).all()
-                for advice in advices:
+                for advice in detail.advices:
                     detail_data["advices"].append(advice.advice_text)
                 
-                refs = References.query.filter_by(detail_id=detail.detail_id).all()
-                for ref in refs:
+                for ref in detail.references:
                     detail_data["references"].append(ref.reference_link)
                 
                 pred_data["details"].append(detail_data)
