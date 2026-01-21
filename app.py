@@ -700,7 +700,7 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
         import traceback
 
         try:
-            print(f"🔄 [DB] Mulai menyimpan data untuk ID: {prediction_id}...")
+            print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
             u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
             
             new_pred = Predictions(
