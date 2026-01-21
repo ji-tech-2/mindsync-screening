@@ -99,7 +99,7 @@ class References(db.Model):
 
 # Create Tables if not exist
 with app.app_context():
-    # db.drop_all() # Uncomment jika ingin reset
+    # db.drop_all()  # Uncomment if you want to reset
     db.create_all()
 
 # --- DEFINE THE CUSTOM CLEANER FUNCTION ---
