@@ -76,7 +76,7 @@ class PredDetails(db.Model):
     __tablename__ = 'PRED_DETAILS'
     detail_id = db.Column(db.Integer, primary_key=True)
     pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('PREDICTIONS.pred_id'), nullable=False)
-    factor_name = db.Column(db.String(100))
+    factor_name = db.Column(db.Text)
     impact_score = db.Column(db.Float)
     
     # Relation (ADVICES & REFERENCES)
@@ -697,7 +697,10 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
 
 def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
     with app_instance.app_context():
+        import traceback
+
         try:
+            print(f"🔄 [DB] Mulai menyimpan data untuk ID: {prediction_id}...")
             u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
             
             new_pred = Predictions(
@@ -736,24 +739,30 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
                     
                     # Advices
                     for tip in factor_data.get('advices', []):
-                        db.session.add(Advices(
-                            detail_id=detail.detail_id,
-                            advice_text=tip
-                        ))
+                        if tip:
+                            db.session.add(Advices(
+                                detail_id=detail.detail_id,
+                                advice_text=str(tip)
+                            ))
                         
                     # References
                     for ref in factor_data.get('references', []):
-                        db.session.add(References(
-                            detail_id=detail.detail_id,
-                            reference_link=ref
-                        ))
+                        if ref:
+                            db.session.add(References(
+                                detail_id=detail.detail_id,
+                                reference_link=str(ref)
+                            ))
 
             db.session.commit()
             print(f"💾 SQL Save Completed for {prediction_id}")
+            return True
             
         except Exception as sql_error:
             db.session.rollback()
-            print(f"⚠️ SQL Save Failed: {sql_error}")
+            print(f"⚠️ SQL Save Failed: {str(sql_error)}")
+            print("-" * 30)
+            print(traceback.format_exc())
+            print("-" * 30)
             return False
           
 def read_from_db(prediction_id=None, user_id=None):
@@ -934,43 +943,43 @@ def get_result(prediction_id):
                 "completed_at": prediction_data.get("completed_at")
             }), 500
         
-        # Check database (fallback) if not found in cache
-        db_result = read_from_db(prediction_id=prediction_id)
+    # Check database (fallback) if not found in cache
+    db_result = read_from_db(prediction_id=prediction_id)
 
-        if db_result.get("status") == "success":
-            data = db_result["data"]
+    if db_result.get("status") == "success":
+        data = db_result["data"]
 
-            wellness_analysis = {
-                "areas_for_improvement": [],
-                "strengths": []
+        wellness_analysis = {
+            "areas_for_improvement": [],
+            "strengths": []
+        }
+        ai_advice = {}
+
+        for detail in data.get("details", []):
+            wellness_analysis["areas_for_improvement"].append({
+                "feature": detail["factor_name"],
+                "impact_score": detail["impact_score"]
+            })
+            ai_advice[detail["factor_name"]] = {
+                "advices": detail["advices"],
+                "references": detail["references"]
             }
-            ai_advice = {}
 
-            for detail in data.get("details", []):
-                wellness_analysis["areas_for_improvement"].append({
-                    "feature": detail["factor_name"],
-                    "impact_score": detail["impact_score"]
-                })
-                ai_advice[detail["factor_name"]] = {
-                    "advices": detail["advices"],
-                    "references": detail["references"]
+        return jsonify({
+            "status": "ready",
+            "source": "database", 
+            "created_at": data["prediction_date"],
+            "completed_at": data["prediction_date"],
+            "result": {
+                "prediction_score": data["prediction_score"],
+                "health_level": categorize_mental_health_score(data["prediction_score"]),
+                "wellness_analysis": wellness_analysis,
+                "advice": {
+                    "description": "Historical result retrieved from database.",
+                    "factors": ai_advice
                 }
-
-            return jsonify({
-                "status": "ready",
-                "source": "database", 
-                "created_at": data["prediction_date"],
-                "completed_at": data["prediction_date"],
-                "result": {
-                    "prediction_score": data["prediction_score"],
-                    "health_level": categorize_mental_health_score(data["prediction_score"]),
-                    "wellness_analysis": wellness_analysis,
-                    "advice": {
-                        "description": "Historical result retrieved from database.",
-                        "factors": ai_advice
-                    }
-                }
-            }), 200
+            }
+        }), 200
         
     return jsonify({
         "status": "not_found",
