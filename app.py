@@ -797,7 +797,7 @@ def read_from_db(prediction_id=None, user_id=None):
         result = []
         
         for pred in predictions:
-            # Data dasar prediction
+            # Base prediction data
             pred_data = {
                 "prediction_id": str(pred.pred_id),
                 "user_id": str(pred.user_id) if pred.user_id else None,
