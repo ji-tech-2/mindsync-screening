@@ -46,7 +46,7 @@ HEALTHY_CLUSTER_PATH = os.path.join('artifacts', 'healthy_cluster_avg.csv')
 #    DATABASE MODELS    #
 # ===================== #
 
-# 1. TABEL PREDICTIONS 
+# 1. PREDICTIONS 
 class Predictions(db.Model):
     __tablename__ = 'PREDICTIONS' # Sesuai ERD
     pred_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -71,7 +71,7 @@ class Predictions(db.Model):
     # Relation (PRED_DETAILS)
     details = db.relationship('PredDetails', backref='prediction', lazy=True, cascade="all, delete-orphan")
 
-# 2. TABEL PRED_DETAILS
+# 2. PRED_DETAILS
 class PredDetails(db.Model):
     __tablename__ = 'PRED_DETAILS'
     detail_id = db.Column(db.Integer, primary_key=True)
@@ -668,66 +668,10 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
                 })
             except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
                 print(f"Failed to store prediction result: {storage_error}")
+            
+            # Save to PostgreSQL database
+            save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
 
-            # Save to database
-            try:
-                u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
-                
-                new_pred = Predictions(
-                    pred_id=uuid.UUID(prediction_id),
-                    user_id=u_id,
-                    
-                    screen_time=float(json_input.get('screen_time_hours', 0)),
-                    work_screen=float(json_input.get('work_screen_hours', 0)),
-                    leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
-                    sleep_hours=float(json_input.get('sleep_hours', 0)),
-                    stress_level=float(json_input.get('stress_level_0_10', 0)),
-                    productivity=float(json_input.get('productivity_0_100', 0)),
-                    social=float(json_input.get('social_hours_per_week', 0)),
-                    
-                    sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
-                    exercise=int(json_input.get('exercise_minutes_per_week', 0)),
-                    
-                    pred_score=prediction_score
-                )
-                db.session.add(new_pred)
-                db.session.flush()  # Generate ID
-                
-                if wellness_analysis:
-                    for item in wellness_analysis.get('areas_for_improvement', []):
-                        fname = item['feature']
-                        
-                        detail = PredDetails(
-                            pred_id=new_pred.pred_id,
-                            factor_name=fname,
-                            impact_score=float(item['impact_score'])
-                        )
-                        db.session.add(detail)
-                        db.session.flush()
-                        
-                        factor_data = ai_advice.get('factors', {}).get(fname, {})
-                        
-                        # Advices
-                        for tip in factor_data.get('advices', []):
-                            db.session.add(Advices(
-                                detail_id=detail.detail_id,
-                                advice_text=tip
-                            ))
-                            
-                        # References
-                        for ref in factor_data.get('references', []):
-                            db.session.add(References(
-                                detail_id=detail.detail_id,
-                                reference_link=ref
-                            ))
-
-                db.session.commit()
-                print(f"💾 SQL Save Completed for {prediction_id}")
-                
-            except Exception as sql_error:
-                db.session.rollback()
-                print(f"⚠️ SQL Save Failed: {sql_error}")
-                
         except Exception as e:
             # Update store dengan error
             try:
@@ -739,6 +683,150 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
                 })
             except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
                 print(f"Failed to store error status: {storage_error}")
+
+def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
+    """
+    Fungsi khusus untuk menyimpan hasil prediksi dan saran ke Database PostgreSQL.
+    Terpisah dari logic utama agar lebih modular.
+    """
+    with app_instance.app_context():
+        try:
+            u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+            
+            new_pred = Predictions(
+                pred_id=uuid.UUID(prediction_id),
+                user_id=u_id,
+                
+                screen_time=float(json_input.get('screen_time_hours', 0)),
+                work_screen=float(json_input.get('work_screen_hours', 0)),
+                leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
+                sleep_hours=float(json_input.get('sleep_hours', 0)),
+                stress_level=float(json_input.get('stress_level_0_10', 0)),
+                productivity=float(json_input.get('productivity_0_100', 0)),
+                social=float(json_input.get('social_hours_per_week', 0)),
+                
+                sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
+                exercise=int(json_input.get('exercise_minutes_per_week', 0)),
+                
+                pred_score=prediction_score
+            )
+            db.session.add(new_pred)
+            db.session.flush()  # Generate ID
+            
+            if wellness_analysis:
+                for item in wellness_analysis.get('areas_for_improvement', []):
+                    fname = item['feature']
+                    
+                    detail = PredDetails(
+                        pred_id=new_pred.pred_id,
+                        factor_name=fname,
+                        impact_score=float(item['impact_score'])
+                    )
+                    db.session.add(detail)
+                    db.session.flush()
+                    
+                    factor_data = ai_advice.get('factors', {}).get(fname, {})
+                    
+                    # Advices
+                    for tip in factor_data.get('advices', []):
+                        db.session.add(Advices(
+                            detail_id=detail.detail_id,
+                            advice_text=tip
+                        ))
+                        
+                    # References
+                    for ref in factor_data.get('references', []):
+                        db.session.add(References(
+                            detail_id=detail.detail_id,
+                            reference_link=ref
+                        ))
+
+            db.session.commit()
+            print(f"💾 SQL Save Completed for {prediction_id}")
+            
+        except Exception as sql_error:
+            db.session.rollback()
+            print(f"⚠️ SQL Save Failed: {sql_error}")
+            return False
+
+def read_from_db(prediction_id=None, user_id=None):
+    try:
+        if prediction_id:
+            pred = Predictions.query.filter_by(pred_id=uuid.UUID(prediction_id)).first()
+            if not pred:
+                return {"error": "Prediction not found", "status": "not_found"}
+            
+            predictions = [pred]
+        elif user_id:
+            predictions = Predictions.query.filter_by(user_id=uuid.UUID(user_id)).order_by(Predictions.pred_date.desc()).all()
+            if not predictions:
+                return {"error": "No predictions found for this user", "status": "not_found"}
+        else:
+            return {"error": "Either prediction_id or user_id must be provided", "status": "bad_request"}
+        
+        result = []
+        
+        for pred in predictions:
+            # Data dasar prediction
+            pred_data = {
+                "prediction_id": str(pred.pred_id),
+                "user_id": str(pred.user_id) if pred.user_id else None,
+                "guest_id": str(pred.guest_id) if pred.guest_id else None,
+                "prediction_date": pred.pred_date.isoformat() if pred.pred_date else None,
+                "input_data": {
+                    "screen_time_hours": pred.screen_time,
+                    "work_screen_hours": pred.work_screen,
+                    "leisure_screen_hours": pred.leisure_screen,
+                    "sleep_hours": pred.sleep_hours,
+                    "sleep_quality_1_5": pred.sleep_quality,
+                    "stress_level_0_10": pred.stress_level,
+                    "productivity_0_100": pred.productivity,
+                    "exercise_minutes_per_week": pred.exercise,
+                    "social_hours_per_week": pred.social
+                },
+                "prediction_score": pred.pred_score,
+                "details": []
+            }
+            
+            details = PredDetails.query.filter_by(pred_id=pred.pred_id).all()
+            for detail in details:
+                detail_data = {
+                    "factor_name": detail.factor_name,
+                    "impact_score": detail.impact_score,
+                    "advices": [],
+                    "references": []
+                }
+                
+                advices = Advices.query.filter_by(detail_id=detail.detail_id).all()
+                for advice in advices:
+                    detail_data["advices"].append(advice.advice_text)
+                
+                refs = References.query.filter_by(detail_id=detail.detail_id).all()
+                for ref in refs:
+                    detail_data["references"].append(ref.reference_link)
+                
+                pred_data["details"].append(detail_data)
+            
+            result.append(pred_data)
+        
+        if prediction_id:
+            return {
+                "status": "success",
+                "data": result[0] if result else None
+            }
+        else:
+            return {
+                "status": "success",
+                "data": result,
+                "total_predictions": len(result)
+            }
+            
+    except Exception as e:
+        print(f"Error reading from PostgreSQL: {e}")
+        return {
+            "error": str(e),
+            "status": "error"
+        }
 
 @app.route('/predict', methods=['POST'])
 def predict():
