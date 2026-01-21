@@ -893,52 +893,89 @@ def predict():
 
 @app.route('/result/<prediction_id>', methods=['GET'])
 def get_result(prediction_id):
+    # Check Valkey for prediction status
+    prediction_data = None
     try:
         prediction_data = fetch_prediction(prediction_id)
-    except (ConnectionError, TimeoutError, RuntimeError) as e:
-        return jsonify({
-            "status": "error",
-            "message": "Storage service unavailable. Please try again later.",
-            "details": str(e)
-        }), 503
+    except Exception as e:
+        print(f"⚠️ Cache fetch warning: {e}")
+        prediction_data = None
     
-    if not prediction_data:
-        return jsonify({
-            "status": "not_found",
-            "message": "Prediction ID not found"
-        }), 404
-    
-    status = prediction_data["status"]
-    
-    if status == "processing":
-        return jsonify({
-            "status": "processing",
-            "message": "Prediction is still being processed. Please try again in a moment."
-        }), 202
-    
-    elif status == "partial":
-        return jsonify({
-            "status": "partial",
-            "result": prediction_data["result"],
-            "message": "Prediction ready. AI advice still processing.",
-            "created_at": prediction_data["created_at"]
-        }), 200
-    
-    elif status == "ready":
-        return jsonify({
-            "status": "ready",
-            "result": prediction_data["result"],
-            "created_at": prediction_data["created_at"],
-            "completed_at": prediction_data["completed_at"]
-        }), 200
-    
-    elif status == "error":
-        return jsonify({
-            "status": "error",
-            "error": prediction_data["error"],
-            "created_at": prediction_data["created_at"],
-            "completed_at": prediction_data.get("completed_at")
-        }), 500
+    if prediction_data:
+        status = prediction_data["status"]
+        
+        if status == "processing":
+            return jsonify({
+                "status": "processing",
+                "message": "Prediction is still being processed. Please try again in a moment."
+            }), 202
+        
+        elif status == "partial":
+            return jsonify({
+                "status": "partial",
+                "result": prediction_data["result"],
+                "message": "Prediction ready. AI advice still processing.",
+                "created_at": prediction_data["created_at"]
+            }), 200
+        
+        elif status == "ready":
+            return jsonify({
+                "status": "ready",
+                "result": prediction_data["result"],
+                "created_at": prediction_data["created_at"],
+                "completed_at": prediction_data["completed_at"]
+            }), 200
+        
+        elif status == "error":
+            return jsonify({
+                "status": "error",
+                "error": prediction_data["error"],
+                "created_at": prediction_data["created_at"],
+                "completed_at": prediction_data.get("completed_at")
+            }), 500
+        
+        # Check database (fallback) if not found in cache
+        db_result = read_from_db(prediction_id=prediction_id)
+
+        if db_result.get("status") == "success":
+            data = db_result["data"]
+
+            wellness_analysis = {
+                "areas_for_improvement": [],
+                "strengths": []
+            }
+            ai_advice = {}
+
+            for detail in data.get("details", []):
+                wellness_analysis["areas_for_improvement"].append({
+                    "feature": detail["factor_name"],
+                    "impact_score": detail["impact_score"]
+                })
+                ai_advice[detail["factor_name"]] = {
+                    "advices": detail["advices"],
+                    "references": detail["references"]
+                }
+
+            return jsonify({
+                "status": "ready",
+                "source": "database", 
+                "created_at": data["prediction_date"],
+                "completed_at": data["prediction_date"],
+                "result": {
+                    "prediction_score": data["prediction_score"],
+                    "health_level": categorize_mental_health_score(data["prediction_score"]),
+                    "wellness_analysis": wellness_analysis,
+                    "advice": {
+                        "description": "Historical result retrieved from database.",
+                        "factors": ai_advice
+                    }
+                }
+            }), 200
+        
+    return jsonify({
+        "status": "not_found",
+        "message": "Prediction ID not found"
+    }), 404
 
 @app.route('/advice', methods=['POST'])
 def advice():
