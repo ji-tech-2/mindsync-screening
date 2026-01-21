@@ -893,7 +893,6 @@ def predict():
 
 @app.route('/result/<prediction_id>', methods=['GET'])
 def get_result(prediction_id):
-    """Endpoint untuk polling hasil prediction"""
     try:
         prediction_data = fetch_prediction(prediction_id)
     except (ConnectionError, TimeoutError, RuntimeError) as e:
@@ -943,7 +942,6 @@ def get_result(prediction_id):
 
 @app.route('/advice', methods=['POST'])
 def advice():
-    """Legacy endpoint - masih bisa digunakan untuk backward compatibility"""
     try:
         json_input = request.get_json()
         
