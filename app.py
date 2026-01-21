@@ -768,13 +768,27 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
 def read_from_db(prediction_id=None, user_id=None):
     try:
         if prediction_id:
-            pred = Predictions.query.filter_by(pred_id=uuid.UUID(prediction_id)).first()
+            try:
+                pred_uuid = uuid.UUID(prediction_id)
+            except ValueError:
+                return {
+                    "error": "Invalid prediction_id format. Must be a valid UUID string.",
+                    "status": "bad_request"
+                }
+            pred = Predictions.query.filter_by(pred_id=pred_uuid).first()
             if not pred:
                 return {"error": "Prediction not found", "status": "not_found"}
             
             predictions = [pred]
         elif user_id:
-            predictions = Predictions.query.filter_by(user_id=uuid.UUID(user_id)).order_by(Predictions.pred_date.desc()).all()
+            try:
+                user_uuid = uuid.UUID(user_id)
+            except ValueError:
+                return {
+                    "error": "Invalid user_id format. Must be a valid UUID string.",
+                    "status": "bad_request"
+                }
+            predictions = Predictions.query.filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
             if not predictions:
                 return {"error": "No predictions found for this user", "status": "not_found"}
         else:
