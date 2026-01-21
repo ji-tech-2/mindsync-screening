@@ -631,13 +631,6 @@ def update_prediction(prediction_id, update_data):
 
     valkey_client.setex(key, 86400, json.dumps(data))
 
-@app.route('/')
-def home():
-    return jsonify({
-        "status": "active",     
-        "message": "Model API is running."
-    })
-
 def process_prediction(prediction_id, json_input, created_at, app_instance):
     try:
         if isinstance(json_input, dict):
@@ -841,6 +834,13 @@ def read_from_db(prediction_id=None, user_id=None):
             "error": str(e),
             "status": "error"
         }
+
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "active",     
+        "message": "Model API is running."
+    })
 
 @app.route('/predict', methods=['POST'])
 def predict():
