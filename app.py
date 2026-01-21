@@ -83,14 +83,14 @@ class PredDetails(db.Model):
     advices = db.relationship('Advices', backref='detail', lazy=True, cascade="all, delete-orphan")
     references = db.relationship('References', backref='detail', lazy=True, cascade="all, delete-orphan")
 
-# 3. TABEL ADVICES 
+# 3. TABLE ADVICES 
 class Advices(db.Model):
     __tablename__ = 'ADVICES' 
     advice_id = db.Column(db.Integer, primary_key=True)
     detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
     advice_text = db.Column(db.Text)
 
-# 4. TABEL REFERENCES
+# 4. TABLE REFERENCES
 class References(db.Model):
     __tablename__ = 'REFERENCES'
     ref_id = db.Column(db.Integer, primary_key=True)
