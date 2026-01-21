@@ -83,14 +83,14 @@ class PredDetails(db.Model):
     advices = db.relationship('Advices', backref='detail', lazy=True, cascade="all, delete-orphan")
     references = db.relationship('References', backref='detail', lazy=True, cascade="all, delete-orphan")
 
-# 3. TABEL ADVICES 
+# 3. TABLE ADVICES 
 class Advices(db.Model):
     __tablename__ = 'ADVICES' 
     advice_id = db.Column(db.Integer, primary_key=True)
     detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
     advice_text = db.Column(db.Text)
 
-# 4. TABEL REFERENCES
+# 4. TABLE REFERENCES
 class References(db.Model):
     __tablename__ = 'REFERENCES'
     ref_id = db.Column(db.Integer, primary_key=True)
@@ -99,7 +99,7 @@ class References(db.Model):
 
 # Create Tables if not exist
 with app.app_context():
-    # db.drop_all() # Uncomment jika ingin reset
+    # db.drop_all()  # Uncomment if you want to reset
     db.create_all()
 
 # --- DEFINE THE CUSTOM CLEANER FUNCTION ---
@@ -681,7 +681,21 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
             print(f"Failed to update with advice: {update_error}")
             
         # Save to PostgreSQL database
-        save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
+        try:
+            save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
+        except Exception as db_error:
+            # Log database save failure without changing the successful prediction status
+            print(f"⚠️ Failed to save prediction {prediction_id} to database: {db_error}")
+            # Best-effort: annotate the existing cache entry with DB error details
+            try:
+                update_prediction(prediction_id, {
+                    "status": "ready",  # keep prediction as successful
+                    "db_save_status": "error",
+                    "db_error": str(db_error),
+                    "completed_at": datetime.now().isoformat()
+                })
+            except Exception as cache_update_error:
+                print(f"Failed to update cache with DB error for {prediction_id}: {cache_update_error}")
 
     except Exception as e:
         print(f"❌ Error processing {prediction_id}: {e}")
@@ -700,7 +714,7 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
         import traceback
 
         try:
-            print(f"🔄 [DB] Mulai menyimpan data untuk ID: {prediction_id}...")
+            print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
             u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
             
             new_pred = Predictions(
@@ -735,7 +749,10 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
                     db.session.add(detail)
                     db.session.flush()
                     
-                    factor_data = ai_advice.get('factors', {}).get(fname, {})
+                    if isinstance(ai_advice, dict):
+                        factor_data = ai_advice.get('factors', {}).get(fname, {})
+                    else:
+                        factor_data = {}
                     
                     # Advices
                     for tip in factor_data.get('advices', []):
@@ -768,13 +785,27 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
 def read_from_db(prediction_id=None, user_id=None):
     try:
         if prediction_id:
-            pred = Predictions.query.filter_by(pred_id=uuid.UUID(prediction_id)).first()
+            try:
+                pred_uuid = uuid.UUID(prediction_id)
+            except ValueError:
+                return {
+                    "error": "Invalid prediction_id format. Must be a valid UUID string.",
+                    "status": "bad_request"
+                }
+            pred = Predictions.query.filter_by(pred_id=pred_uuid).first()
             if not pred:
                 return {"error": "Prediction not found", "status": "not_found"}
             
             predictions = [pred]
         elif user_id:
-            predictions = Predictions.query.filter_by(user_id=uuid.UUID(user_id)).order_by(Predictions.pred_date.desc()).all()
+            try:
+                user_uuid = uuid.UUID(user_id)
+            except ValueError:
+                return {
+                    "error": "Invalid user_id format. Must be a valid UUID string.",
+                    "status": "bad_request"
+                }
+            predictions = Predictions.query.filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
             if not predictions:
                 return {"error": "No predictions found for this user", "status": "not_found"}
         else:
@@ -783,7 +814,7 @@ def read_from_db(prediction_id=None, user_id=None):
         result = []
         
         for pred in predictions:
-            # Data dasar prediction
+            # Base prediction data
             pred_data = {
                 "prediction_id": str(pred.pred_id),
                 "user_id": str(pred.user_id) if pred.user_id else None,
