@@ -749,7 +749,10 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
                     db.session.add(detail)
                     db.session.flush()
                     
-                    factor_data = ai_advice.get('factors', {}).get(fname, {})
+                    if isinstance(ai_advice, dict):
+                        factor_data = ai_advice.get('factors', {}).get(fname, {})
+                    else:
+                        factor_data = {}
                     
                     # Advices
                     for tip in factor_data.get('advices', []):
