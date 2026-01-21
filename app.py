@@ -681,7 +681,21 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
             print(f"Failed to update with advice: {update_error}")
             
         # Save to PostgreSQL database
-        save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
+        try:
+            save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
+        except Exception as db_error:
+            # Log database save failure without changing the successful prediction status
+            print(f"⚠️ Failed to save prediction {prediction_id} to database: {db_error}")
+            # Best-effort: annotate the existing cache entry with DB error details
+            try:
+                update_prediction(prediction_id, {
+                    "status": "ready",  # keep prediction as successful
+                    "db_save_status": "error",
+                    "db_error": str(db_error),
+                    "completed_at": datetime.now().isoformat()
+                })
+            except Exception as cache_update_error:
+                print(f"Failed to update cache with DB error for {prediction_id}: {cache_update_error}")
 
     except Exception as e:
         print(f"❌ Error processing {prediction_id}: {e}")
