@@ -554,11 +554,11 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result):
             "factors": {}
         }
 
-# Valkey client for storing prediction results
-try:
-    print("Connecting to Valkey...")
-    valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
+# Valkey client for storing prediction results - REQUIRED
+print("Connecting to Valkey...")
+valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
 
+try:
     print(f"Valkey URL: {valkey_url}")
 
     valkey_client = valkey.from_url(
@@ -570,18 +570,16 @@ try:
     )
     # Test connection
     valkey_client.ping()
-    print("Successfully connected to Valkey")
+    print("✅ Successfully connected to Valkey")
 except Exception as e:
-    print(f"WARNING: Could not connect to Valkey: {e}")
-    print("Application will continue but prediction storage may fail")
-    valkey_client = None
+    print(f"❌ CRITICAL ERROR: Could not connect to Valkey: {e}")
+    print(f"❌ Application requires Valkey to be running at {valkey_url}")
+    print("❌ Application will exit.")
+    raise SystemExit(f"Failed to connect to Valkey: {e}")
 
 # Helper functions for Valkey storage
 def store_prediction(prediction_id, prediction_data):
-    """Store prediction data in Valkey with 24-hour expiration"""
-    if valkey_client is None:
-        raise ConnectionError("Valkey client is not initialized")
-    
+    """Store prediction data with 24-hour expiration in Valkey"""
     try:
         key = f"prediction:{prediction_id}"
         valkey_client.setex(
@@ -601,9 +599,6 @@ def store_prediction(prediction_id, prediction_data):
 
 def fetch_prediction(prediction_id):
     """Fetch prediction data from Valkey"""
-    if valkey_client is None:
-        raise ConnectionError("Valkey client is not initialized")
-    
     try:
         key = f"prediction:{prediction_id}"
         data = valkey_client.get(key)
@@ -623,6 +618,19 @@ def fetch_prediction(prediction_id):
         print(f"Unexpected error in fetch_prediction: {e}")
         raise RuntimeError(f"Failed to fetch prediction: {str(e)}")
 
+def update_prediction(prediction_id, update_data):
+    """Update existing prediction data in Valkey"""
+    key = f"prediction:{prediction_id}"
+    existing = valkey_client.get(key)
+
+    if not existing:
+        raise KeyError("Prediction not found")
+
+    data = json.loads(existing)
+    data.update(update_data)
+
+    valkey_client.setex(key, 86400, json.dumps(data))
+
 @app.route('/')
 def home():
     return jsonify({
@@ -631,64 +639,70 @@ def home():
     })
 
 def process_prediction(prediction_id, json_input, created_at, app_instance):
-    """Background task untuk memproses prediction"""
-    with app_instance.app_context():
+    try:
+        if isinstance(json_input, dict):
+            df = pd.DataFrame([json_input])
+        else:
+            df = pd.DataFrame(json_input)
+
+        # FAST PART: Prediction & Analysis 
+        prediction = model.predict(df)
+        prediction_score = float(prediction[0])
+        
+        wellness_analysis = analyze_wellness_factors(df)
+        mental_health_category = categorize_mental_health_score(prediction_score)
+        
+        # Result score
         try:
-            # Handle dict vs list input
-            if isinstance(json_input, dict):
-                df = pd.DataFrame([json_input])
-            else:
-                df = pd.DataFrame(json_input)
+            store_prediction(prediction_id, {
+                "status": "partial",
+                "result": {
+                    "prediction_score": prediction_score,
+                    "health_level": mental_health_category,
+                    "wellness_analysis": wellness_analysis,
+                    "advice": None
+                },
+                "created_at": created_at if created_at else datetime.now().isoformat()
+            })
+            print(f"📊 Partial result ready for {prediction_id}")
+        except Exception as partial_error:
+            print(f"Failed to store partial result: {partial_error}")
+        
+        # SLOW PART: Gemini AI
+        ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
+        
+        # Final update
+        try:
+            update_prediction(prediction_id, {
+                "status": "ready",
+                "result": {
+                    "prediction_score": prediction_score,
+                    "health_level": mental_health_category,
+                    "wellness_analysis": wellness_analysis,
+                    "advice": ai_advice
+                },
+                "completed_at": datetime.now().isoformat()
+            })
+            print(f"✅ Full result ready for {prediction_id}")
+        except Exception as update_error:
+            print(f"Failed to update with advice: {update_error}")
+            
+        # Save to PostgreSQL database
+        save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
 
-            # Make prediction
-            prediction = model.predict(df)
-            prediction_score = float(prediction[0])
-            
-            # Analyze wellness factors
-            wellness_analysis = analyze_wellness_factors(df)
-            
-            # Categorize the mental health score
-            mental_health_category = categorize_mental_health_score(prediction_score)
-            
-            # Get AI advice
-            ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
-            
-            # Update store dengan hasil
-            try:
-                store_prediction(prediction_id, {
-                    "status": "ready",
-                    "result": {
-                        "prediction_score": prediction_score,
-                        "health_level": mental_health_category,
-                        "wellness_analysis": wellness_analysis,
-                        "advice": ai_advice
-                    },
-                    "created_at": created_at if created_at else datetime.now().isoformat(),
-                    "completed_at": datetime.now().isoformat()
-                })
-            except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
-                print(f"Failed to store prediction result: {storage_error}")
-            
-            # Save to PostgreSQL database
-            save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
-
-        except Exception as e:
-            # Update store dengan error
-            try:
-                store_prediction(prediction_id, {
-                    "status": "error",
-                    "error": str(e),
-                    "created_at": created_at if created_at else datetime.now().isoformat(),
-                    "completed_at": datetime.now().isoformat()
-                })
-            except (ConnectionError, TimeoutError, RuntimeError) as storage_error:
-                print(f"Failed to store error status: {storage_error}")
+    except Exception as e:
+        print(f"❌ Error processing {prediction_id}: {e}")
+        # If fatal error, update status cache to 'error'
+        try:
+            update_prediction(prediction_id, {
+                "status": "error",
+                "error": str(e),
+                "completed_at": datetime.now().isoformat()
+            })
+        except Exception as storage_error:
+            print(f"Failed to store error status: {storage_error}")
 
 def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
-    """
-    Fungsi khusus untuk menyimpan hasil prediksi dan saran ke Database PostgreSQL.
-    Terpisah dari logic utama agar lebih modular.
-    """
     with app_instance.app_context():
         try:
             u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
@@ -748,7 +762,7 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
             db.session.rollback()
             print(f"⚠️ SQL Save Failed: {sql_error}")
             return False
-
+          
 def read_from_db(prediction_id=None, user_id=None):
     try:
         if prediction_id:
@@ -902,6 +916,14 @@ def get_result(prediction_id):
             "status": "processing",
             "message": "Prediction is still being processed. Please try again in a moment."
         }), 202
+    
+    elif status == "partial":
+        return jsonify({
+            "status": "partial",
+            "result": prediction_data["result"],
+            "message": "Prediction ready. AI advice still processing.",
+            "created_at": prediction_data["created_at"]
+        }), 200
     
     elif status == "ready":
         return jsonify({
