@@ -13,6 +13,7 @@ from datetime import datetime
 import valkey
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
+import traceback
 
 # Load environment variables from .env file
 load_dotenv()
@@ -711,8 +712,6 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
 
 def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
     with app_instance.app_context():
-        import traceback
-
         try:
             print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
             u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
