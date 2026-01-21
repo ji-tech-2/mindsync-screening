@@ -11,13 +11,17 @@ import uuid
 import threading
 from datetime import datetime
 import valkey
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import UUID
+import traceback
 
 # Load environment variables from .env file
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+DATABASE_URL = os.getenv('DATABASE_URL')
 
-# --- 1. ADD ALL PREPROCESSING IMPORTS ---
+# --- ADD ALL PREPROCESSING IMPORTS ---
 # Pickle needs these libraries loaded to reconstruct the pipeline
 from sklearn.base import BaseEstimator, RegressorMixin 
 from sklearn.preprocessing import (
@@ -28,8 +32,10 @@ from sklearn.preprocessing import (
     FunctionTransformer
 )
 
-
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
 # Configuration
 MODEL_PATH = os.path.join('artifacts', 'model.pkl')
@@ -37,7 +43,67 @@ PREPROCESSOR_PATH = os.path.join('artifacts', 'preprocessor.pkl')
 COEFFICIENTS_PATH = os.path.join('artifacts', 'model_coefficients.csv')
 HEALTHY_CLUSTER_PATH = os.path.join('artifacts', 'healthy_cluster_avg.csv')
 
-# --- 2. DEFINE THE CUSTOM CLEANER FUNCTION ---
+# ===================== #
+#    DATABASE MODELS    #
+# ===================== #
+
+# 1. PREDICTIONS 
+class Predictions(db.Model):
+    __tablename__ = 'PREDICTIONS' # Sesuai ERD
+    pred_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = db.Column(UUID(as_uuid=True), nullable=True)
+    guest_id = db.Column(UUID(as_uuid=True), nullable=True)
+    pred_date = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Input Data
+    screen_time = db.Column(db.Float)
+    work_screen = db.Column(db.Float)
+    leisure_screen = db.Column(db.Float)
+    sleep_hours = db.Column(db.Float)
+    sleep_quality = db.Column(db.Integer)
+    stress_level = db.Column(db.Float)
+    productivity = db.Column(db.Float)
+    exercise = db.Column(db.Integer)
+    social = db.Column(db.Float)
+    
+    # Output Data
+    pred_score = db.Column(db.Float) 
+    
+    # Relation (PRED_DETAILS)
+    details = db.relationship('PredDetails', backref='prediction', lazy=True, cascade="all, delete-orphan")
+
+# 2. PRED_DETAILS
+class PredDetails(db.Model):
+    __tablename__ = 'PRED_DETAILS'
+    detail_id = db.Column(db.Integer, primary_key=True)
+    pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('PREDICTIONS.pred_id'), nullable=False)
+    factor_name = db.Column(db.Text)
+    impact_score = db.Column(db.Float)
+    
+    # Relation (ADVICES & REFERENCES)
+    advices = db.relationship('Advices', backref='detail', lazy=True, cascade="all, delete-orphan")
+    references = db.relationship('References', backref='detail', lazy=True, cascade="all, delete-orphan")
+
+# 3. TABLE ADVICES 
+class Advices(db.Model):
+    __tablename__ = 'ADVICES' 
+    advice_id = db.Column(db.Integer, primary_key=True)
+    detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
+    advice_text = db.Column(db.Text)
+
+# 4. TABLE REFERENCES
+class References(db.Model):
+    __tablename__ = 'REFERENCES'
+    ref_id = db.Column(db.Integer, primary_key=True)
+    detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
+    reference_link = db.Column(db.String(500))
+
+# Create Tables if not exist
+with app.app_context():
+    # db.drop_all()  # Uncomment if you want to reset
+    db.create_all()
+
+# --- DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
 def clean_occupation_column(df):
     """
@@ -51,7 +117,7 @@ def clean_occupation_column(df):
         )
     return df_copy
 
-# --- 3. DEFINE THE CUSTOM MODEL CLASS ---
+# --- DEFINE THE CUSTOM MODEL CLASS ---
 class LinearRegressionRidge(BaseEstimator, RegressorMixin):
     def __init__(self, alpha=1.0, fit_intercept=True, normalize=False, 
                  solver='closed_form', learning_rate=0.01, max_iter=1000, 
@@ -494,6 +560,8 @@ print("Connecting to Valkey...")
 valkey_url = os.getenv('VALKEY_URL', 'redis://localhost:6379')
 
 try:
+    print(f"Valkey URL: {valkey_url}")
+
     valkey_client = valkey.from_url(
         valkey_url,
         socket_connect_timeout=5,
@@ -564,48 +632,40 @@ def update_prediction(prediction_id, update_data):
 
     valkey_client.setex(key, 86400, json.dumps(data))
 
-@app.route('/')
-def home():
-    return jsonify({
-        "status": "active",     
-        "message": "Model API is running."
-    })
-
-def process_prediction(prediction_id, json_input, created_at=None):
-    """Background task dengan partial response untuk UX lebih cepat"""
+def process_prediction(prediction_id, json_input, created_at, app_instance):
     try:
-        # Handle dict vs list input
         if isinstance(json_input, dict):
             df = pd.DataFrame([json_input])
         else:
             df = pd.DataFrame(json_input)
 
-        # ===== FAST PART: Prediction & Analysis (< 1 second) =====
+        # FAST PART: Prediction & Analysis 
         prediction = model.predict(df)
         prediction_score = float(prediction[0])
         
         wellness_analysis = analyze_wellness_factors(df)
         mental_health_category = categorize_mental_health_score(prediction_score)
         
-        # SIMPAN HASIL CEPAT (PARTIAL) - User bisa langsung lihat score!
+        # Result score
         try:
-            update_prediction(prediction_id, {
+            store_prediction(prediction_id, {
                 "status": "partial",
                 "result": {
                     "prediction_score": prediction_score,
                     "health_level": mental_health_category,
                     "wellness_analysis": wellness_analysis,
                     "advice": None
-                }
+                },
+                "created_at": created_at if created_at else datetime.now().isoformat()
             })
             print(f"📊 Partial result ready for {prediction_id}")
         except Exception as partial_error:
             print(f"Failed to store partial result: {partial_error}")
         
-        # ===== SLOW PART: Gemini AI (5-60 seconds) =====
+        # SLOW PART: Gemini AI
         ai_advice = get_ai_advice(prediction_score, mental_health_category, wellness_analysis)
         
-        # UPDATE DENGAN ADVICE (READY)
+        # Final update
         try:
             update_prediction(prediction_id, {
                 "status": "ready",
@@ -621,17 +681,205 @@ def process_prediction(prediction_id, json_input, created_at=None):
         except Exception as update_error:
             print(f"Failed to update with advice: {update_error}")
             
+        # Save to PostgreSQL database
+        try:
+            save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
+        except Exception as db_error:
+            # Log database save failure without changing the successful prediction status
+            print(f"⚠️ Failed to save prediction {prediction_id} to database: {db_error}")
+            # Best-effort: annotate the existing cache entry with DB error details
+            try:
+                update_prediction(prediction_id, {
+                    "status": "ready",  # keep prediction as successful
+                    "db_save_status": "error",
+                    "db_error": str(db_error),
+                    "completed_at": datetime.now().isoformat()
+                })
+            except Exception as cache_update_error:
+                print(f"Failed to update cache with DB error for {prediction_id}: {cache_update_error}")
+
     except Exception as e:
-        # Update store dengan error
         print(f"❌ Error processing {prediction_id}: {e}")
+        # If fatal error, update status cache to 'error'
         try:
             update_prediction(prediction_id, {
                 "status": "error",
                 "error": str(e),
                 "completed_at": datetime.now().isoformat()
             })
-        except Exception as error_storage:
-            print(f"Failed to store error status: {error_storage}")
+        except Exception as storage_error:
+            print(f"Failed to store error status: {storage_error}")
+
+def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
+    with app_instance.app_context():
+        try:
+            print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
+            u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+            
+            new_pred = Predictions(
+                pred_id=uuid.UUID(prediction_id),
+                user_id=u_id,
+                
+                screen_time=float(json_input.get('screen_time_hours', 0)),
+                work_screen=float(json_input.get('work_screen_hours', 0)),
+                leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
+                sleep_hours=float(json_input.get('sleep_hours', 0)),
+                stress_level=float(json_input.get('stress_level_0_10', 0)),
+                productivity=float(json_input.get('productivity_0_100', 0)),
+                social=float(json_input.get('social_hours_per_week', 0)),
+                
+                sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
+                exercise=int(json_input.get('exercise_minutes_per_week', 0)),
+                
+                pred_score=prediction_score
+            )
+            db.session.add(new_pred)
+            db.session.flush()  # Generate ID
+            
+            if wellness_analysis:
+                for item in wellness_analysis.get('areas_for_improvement', []):
+                    fname = item['feature']
+                    
+                    detail = PredDetails(
+                        pred_id=new_pred.pred_id,
+                        factor_name=fname,
+                        impact_score=float(item['impact_score'])
+                    )
+                    db.session.add(detail)
+                    db.session.flush()
+                    
+                    if isinstance(ai_advice, dict):
+                        factor_data = ai_advice.get('factors', {}).get(fname, {})
+                    else:
+                        factor_data = {}
+                    
+                    # Advices
+                    for tip in factor_data.get('advices', []):
+                        if tip:
+                            db.session.add(Advices(
+                                detail_id=detail.detail_id,
+                                advice_text=str(tip)
+                            ))
+                        
+                    # References
+                    for ref in factor_data.get('references', []):
+                        if ref:
+                            db.session.add(References(
+                                detail_id=detail.detail_id,
+                                reference_link=str(ref)
+                            ))
+
+            db.session.commit()
+            print(f"💾 SQL Save Completed for {prediction_id}")
+            return True
+            
+        except Exception as sql_error:
+            db.session.rollback()
+            print(f"⚠️ SQL Save Failed: {str(sql_error)}")
+            print("-" * 30)
+            print(traceback.format_exc())
+            print("-" * 30)
+            return False
+          
+def read_from_db(prediction_id=None, user_id=None):
+    try:
+        if prediction_id:
+            try:
+                pred_uuid = uuid.UUID(prediction_id)
+            except ValueError:
+                return {
+                    "error": "Invalid prediction_id format. Must be a valid UUID string.",
+                    "status": "bad_request"
+                }
+            pred = Predictions.query.filter_by(pred_id=pred_uuid).first()
+            if not pred:
+                return {"error": "Prediction not found", "status": "not_found"}
+            
+            predictions = [pred]
+        elif user_id:
+            try:
+                user_uuid = uuid.UUID(user_id)
+            except ValueError:
+                return {
+                    "error": "Invalid user_id format. Must be a valid UUID string.",
+                    "status": "bad_request"
+                }
+            predictions = Predictions.query.filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
+            if not predictions:
+                return {"error": "No predictions found for this user", "status": "not_found"}
+        else:
+            return {"error": "Either prediction_id or user_id must be provided", "status": "bad_request"}
+        
+        result = []
+        
+        for pred in predictions:
+            # Base prediction data
+            pred_data = {
+                "prediction_id": str(pred.pred_id),
+                "user_id": str(pred.user_id) if pred.user_id else None,
+                "guest_id": str(pred.guest_id) if pred.guest_id else None,
+                "prediction_date": pred.pred_date.isoformat() if pred.pred_date else None,
+                "input_data": {
+                    "screen_time_hours": pred.screen_time,
+                    "work_screen_hours": pred.work_screen,
+                    "leisure_screen_hours": pred.leisure_screen,
+                    "sleep_hours": pred.sleep_hours,
+                    "sleep_quality_1_5": pred.sleep_quality,
+                    "stress_level_0_10": pred.stress_level,
+                    "productivity_0_100": pred.productivity,
+                    "exercise_minutes_per_week": pred.exercise,
+                    "social_hours_per_week": pred.social
+                },
+                "prediction_score": pred.pred_score,
+                "details": []
+            }
+            
+            details = PredDetails.query.filter_by(pred_id=pred.pred_id).all()
+            for detail in details:
+                detail_data = {
+                    "factor_name": detail.factor_name,
+                    "impact_score": detail.impact_score,
+                    "advices": [],
+                    "references": []
+                }
+                
+                advices = Advices.query.filter_by(detail_id=detail.detail_id).all()
+                for advice in advices:
+                    detail_data["advices"].append(advice.advice_text)
+                
+                refs = References.query.filter_by(detail_id=detail.detail_id).all()
+                for ref in refs:
+                    detail_data["references"].append(ref.reference_link)
+                
+                pred_data["details"].append(detail_data)
+            
+            result.append(pred_data)
+        
+        if prediction_id:
+            return {
+                "status": "success",
+                "data": result[0] if result else None
+            }
+        else:
+            return {
+                "status": "success",
+                "data": result,
+                "total_predictions": len(result)
+            }
+            
+    except Exception as e:
+        print(f"Error reading from PostgreSQL: {e}")
+        return {
+            "error": str(e),
+            "status": "error"
+        }
+
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "active",     
+        "message": "Model API is running."
+    })
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -664,7 +912,7 @@ def predict():
         # Start background processing
         thread = threading.Thread(
             target=process_prediction,
-            args=(prediction_id, json_input, created_at)
+            args=(prediction_id, json_input, created_at, app)
         )
         thread.daemon = True
         thread.start()
@@ -684,57 +932,92 @@ def predict():
 
 @app.route('/result/<prediction_id>', methods=['GET'])
 def get_result(prediction_id):
-    """Endpoint untuk polling hasil prediction"""
+    # Check Valkey for prediction status
+    prediction_data = None
     try:
         prediction_data = fetch_prediction(prediction_id)
-    except (ConnectionError, TimeoutError, RuntimeError) as e:
-        return jsonify({
-            "status": "error",
-            "message": "Storage service unavailable. Please try again later.",
-            "details": str(e)
-        }), 503
+    except Exception as e:
+        print(f"⚠️ Cache fetch warning: {e}")
+        prediction_data = None
     
-    if not prediction_data:
-        return jsonify({
-            "status": "not_found",
-            "message": "Prediction ID not found"
-        }), 404
-    
-    status = prediction_data["status"]
-    
-    if status == "processing":
-        return jsonify({
-            "status": "processing",
-            "message": "Prediction is still being processed. Please try again in a moment."
-        }), 202
-    
-    elif status == "partial":
-        return jsonify({
-            "status": "partial",
-            "result": prediction_data["result"],
-            "message": "Prediction ready. AI advice still processing.",
-            "created_at": prediction_data["created_at"]
-        }), 200
-    
-    elif status == "ready":
+    if prediction_data:
+        status = prediction_data["status"]
+        
+        if status == "processing":
+            return jsonify({
+                "status": "processing",
+                "message": "Prediction is still being processed. Please try again in a moment."
+            }), 202
+        
+        elif status == "partial":
+            return jsonify({
+                "status": "partial",
+                "result": prediction_data["result"],
+                "message": "Prediction ready. AI advice still processing.",
+                "created_at": prediction_data["created_at"]
+            }), 200
+        
+        elif status == "ready":
+            return jsonify({
+                "status": "ready",
+                "result": prediction_data["result"],
+                "created_at": prediction_data["created_at"],
+                "completed_at": prediction_data["completed_at"]
+            }), 200
+        
+        elif status == "error":
+            return jsonify({
+                "status": "error",
+                "error": prediction_data["error"],
+                "created_at": prediction_data["created_at"],
+                "completed_at": prediction_data.get("completed_at")
+            }), 500
+        
+    # Check database (fallback) if not found in cache
+    db_result = read_from_db(prediction_id=prediction_id)
+
+    if db_result.get("status") == "success":
+        data = db_result["data"]
+
+        wellness_analysis = {
+            "areas_for_improvement": [],
+            "strengths": []
+        }
+        ai_advice = {}
+
+        for detail in data.get("details", []):
+            wellness_analysis["areas_for_improvement"].append({
+                "feature": detail["factor_name"],
+                "impact_score": detail["impact_score"]
+            })
+            ai_advice[detail["factor_name"]] = {
+                "advices": detail["advices"],
+                "references": detail["references"]
+            }
+
         return jsonify({
             "status": "ready",
-            "result": prediction_data["result"],
-            "created_at": prediction_data["created_at"],
-            "completed_at": prediction_data["completed_at"]
+            "source": "database", 
+            "created_at": data["prediction_date"],
+            "completed_at": data["prediction_date"],
+            "result": {
+                "prediction_score": data["prediction_score"],
+                "health_level": categorize_mental_health_score(data["prediction_score"]),
+                "wellness_analysis": wellness_analysis,
+                "advice": {
+                    "description": "Historical result retrieved from database.",
+                    "factors": ai_advice
+                }
+            }
         }), 200
-    
-    elif status == "error":
-        return jsonify({
-            "status": "error",
-            "error": prediction_data["error"],
-            "created_at": prediction_data["created_at"],
-            "completed_at": prediction_data.get("completed_at")
-        }), 500
+        
+    return jsonify({
+        "status": "not_found",
+        "message": "Prediction ID not found"
+    }), 404
 
 @app.route('/advice', methods=['POST'])
 def advice():
-    """Legacy endpoint - masih bisa digunakan untuk backward compatibility"""
     try:
         json_input = request.get_json()
         
