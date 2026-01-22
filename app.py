@@ -728,74 +728,64 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
 
 def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
     with app_instance.app_context():
-        try:
-            print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
-            u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+        print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
+        u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+        
+        new_pred = Predictions(
+            pred_id=uuid.UUID(prediction_id),
+            user_id=u_id,
             
-            new_pred = Predictions(
-                pred_id=uuid.UUID(prediction_id),
-                user_id=u_id,
-                
-                screen_time=float(json_input.get('screen_time_hours', 0)),
-                work_screen=float(json_input.get('work_screen_hours', 0)),
-                leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
-                sleep_hours=float(json_input.get('sleep_hours', 0)),
-                stress_level=float(json_input.get('stress_level_0_10', 0)),
-                productivity=float(json_input.get('productivity_0_100', 0)),
-                social=float(json_input.get('social_hours_per_week', 0)),
-                
-                sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
-                exercise=int(json_input.get('exercise_minutes_per_week', 0)),
-                
-                pred_score=prediction_score
-            )
-            db.session.add(new_pred)
-            db.session.flush()  # Generate ID
+            screen_time=float(json_input.get('screen_time_hours', 0)),
+            work_screen=float(json_input.get('work_screen_hours', 0)),
+            leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
+            sleep_hours=float(json_input.get('sleep_hours', 0)),
+            stress_level=float(json_input.get('stress_level_0_10', 0)),
+            productivity=float(json_input.get('productivity_0_100', 0)),
+            social=float(json_input.get('social_hours_per_week', 0)),
             
-            if wellness_analysis:
-                for item in wellness_analysis.get('areas_for_improvement', []):
-                    fname = item['feature']
+            sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
+            exercise=int(json_input.get('exercise_minutes_per_week', 0)),
+            
+            pred_score=prediction_score
+        )
+        db.session.add(new_pred)
+        db.session.flush()  # Generate ID
+        
+        if wellness_analysis:
+            for item in wellness_analysis.get('areas_for_improvement', []):
+                fname = item['feature']
+                
+                detail = PredDetails(
+                    pred_id=new_pred.pred_id,
+                    factor_name=fname,
+                    impact_score=float(item['impact_score'])
+                )
+                db.session.add(detail)
+                db.session.flush()
+                
+                if isinstance(ai_advice, dict):
+                    factor_data = ai_advice.get('factors', {}).get(fname, {})
+                else:
+                    factor_data = {}
+                
+                # Advices
+                for tip in factor_data.get('advices', []):
+                    if tip:
+                        db.session.add(Advices(
+                            detail_id=detail.detail_id,
+                            advice_text=str(tip)
+                        ))
                     
-                    detail = PredDetails(
-                        pred_id=new_pred.pred_id,
-                        factor_name=fname,
-                        impact_score=float(item['impact_score'])
-                    )
-                    db.session.add(detail)
-                    db.session.flush()
-                    
-                    if isinstance(ai_advice, dict):
-                        factor_data = ai_advice.get('factors', {}).get(fname, {})
-                    else:
-                        factor_data = {}
-                    
-                    # Advices
-                    for tip in factor_data.get('advices', []):
-                        if tip:
-                            db.session.add(Advices(
-                                detail_id=detail.detail_id,
-                                advice_text=str(tip)
-                            ))
-                        
-                    # References
-                    for ref in factor_data.get('references', []):
-                        if ref:
-                            db.session.add(References(
-                                detail_id=detail.detail_id,
-                                reference_link=str(ref)
-                            ))
+                # References
+                for ref in factor_data.get('references', []):
+                    if ref:
+                        db.session.add(References(
+                            detail_id=detail.detail_id,
+                            reference_link=str(ref)
+                        ))
 
-            db.session.commit()
-            print(f"💾 SQL Save Completed for {prediction_id}")
-            return True
-            
-        except Exception as sql_error:
-            db.session.rollback()
-            print(f"⚠️ SQL Save Failed: {str(sql_error)}")
-            print("-" * 30)
-            print(traceback.format_exc())
-            print("-" * 30)
-            return False
+        db.session.commit()
+        print(f"💾 SQL Save Completed for {prediction_id}")
           
 def read_from_db(prediction_id=None, user_id=None):
     try:
