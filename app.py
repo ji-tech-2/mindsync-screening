@@ -13,6 +13,7 @@ from datetime import datetime
 import valkey
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import selectinload
 import traceback
 
 # Load environment variables from .env file
@@ -98,10 +99,34 @@ class References(db.Model):
     detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
     reference_link = db.Column(db.String(500))
 
-# Create Tables if not exist
-with app.app_context():
-    # db.drop_all()  # Uncomment if you want to reset
-    db.create_all()
+# --- HELPER: UUID VALIDATION ---
+def is_valid_uuid(val):
+    try:
+        uuid.UUID(str(val))
+        return True
+    except ValueError:
+        return False
+
+# LAZY DB INIT
+def init_db():
+    """Initialize database tables safely."""
+    try:
+        with app.app_context():
+            # db.drop_all() # Do not uncomment in production
+            db.create_all()
+            print("✅ Database tables initialized.")
+    except Exception as e:
+        print(f"❌ Database not ready yet: {e}")
+
+db_initialized = False
+
+@app.before_request
+def check_db_init():
+    """Lazy load database creation on first request."""
+    global db_initialized
+    if not db_initialized:
+        init_db()
+        db_initialized = True
 
 # --- DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
@@ -712,77 +737,75 @@ def process_prediction(prediction_id, json_input, created_at, app_instance):
 
 def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
     with app_instance.app_context():
-        try:
-            print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
-            u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+        print(f"🔄 [DB] Starting to save data for ID: {prediction_id}...")
+        u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
+        
+        new_pred = Predictions(
+            pred_id=uuid.UUID(prediction_id),
+            user_id=u_id,
             
-            new_pred = Predictions(
-                pred_id=uuid.UUID(prediction_id),
-                user_id=u_id,
-                
-                screen_time=float(json_input.get('screen_time_hours', 0)),
-                work_screen=float(json_input.get('work_screen_hours', 0)),
-                leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
-                sleep_hours=float(json_input.get('sleep_hours', 0)),
-                stress_level=float(json_input.get('stress_level_0_10', 0)),
-                productivity=float(json_input.get('productivity_0_100', 0)),
-                social=float(json_input.get('social_hours_per_week', 0)),
-                
-                sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
-                exercise=int(json_input.get('exercise_minutes_per_week', 0)),
-                
-                pred_score=prediction_score
-            )
-            db.session.add(new_pred)
-            db.session.flush()  # Generate ID
+            screen_time=float(json_input.get('screen_time_hours', 0)),
+            work_screen=float(json_input.get('work_screen_hours', 0)),
+            leisure_screen=float(json_input.get('leisure_screen_hours', 0)),
+            sleep_hours=float(json_input.get('sleep_hours', 0)),
+            stress_level=float(json_input.get('stress_level_0_10', 0)),
+            productivity=float(json_input.get('productivity_0_100', 0)),
+            social=float(json_input.get('social_hours_per_week', 0)),
             
-            if wellness_analysis:
-                for item in wellness_analysis.get('areas_for_improvement', []):
-                    fname = item['feature']
+            sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
+            exercise=int(json_input.get('exercise_minutes_per_week', 0)),
+            
+            pred_score=prediction_score
+        )
+        db.session.add(new_pred)
+        db.session.flush()  # Generate ID
+        
+        if wellness_analysis:
+            for item in wellness_analysis.get('areas_for_improvement', []):
+                fname = item['feature']
+                
+                detail = PredDetails(
+                    pred_id=new_pred.pred_id,
+                    factor_name=fname,
+                    impact_score=float(item['impact_score'])
+                )
+                db.session.add(detail)
+                db.session.flush()
+                
+                if isinstance(ai_advice, dict):
+                    factor_data = ai_advice.get('factors', {}).get(fname, {})
+                else:
+                    factor_data = {}
+                
+                # Advices
+                for tip in factor_data.get('advices', []):
+                    if tip:
+                        db.session.add(Advices(
+                            detail_id=detail.detail_id,
+                            advice_text=str(tip)
+                        ))
                     
-                    detail = PredDetails(
-                        pred_id=new_pred.pred_id,
-                        factor_name=fname,
-                        impact_score=float(item['impact_score'])
-                    )
-                    db.session.add(detail)
-                    db.session.flush()
-                    
-                    if isinstance(ai_advice, dict):
-                        factor_data = ai_advice.get('factors', {}).get(fname, {})
-                    else:
-                        factor_data = {}
-                    
-                    # Advices
-                    for tip in factor_data.get('advices', []):
-                        if tip:
-                            db.session.add(Advices(
-                                detail_id=detail.detail_id,
-                                advice_text=str(tip)
-                            ))
-                        
-                    # References
-                    for ref in factor_data.get('references', []):
-                        if ref:
-                            db.session.add(References(
-                                detail_id=detail.detail_id,
-                                reference_link=str(ref)
-                            ))
+                # References
+                for ref in factor_data.get('references', []):
+                    if ref:
+                        db.session.add(References(
+                            detail_id=detail.detail_id,
+                            reference_link=str(ref)
+                        ))
 
-            db.session.commit()
-            print(f"💾 SQL Save Completed for {prediction_id}")
-            return True
-            
-        except Exception as sql_error:
-            db.session.rollback()
-            print(f"⚠️ SQL Save Failed: {str(sql_error)}")
-            print("-" * 30)
-            print(traceback.format_exc())
-            print("-" * 30)
-            return False
+        db.session.commit()
+        print(f"💾 SQL Save Completed for {prediction_id}")
           
 def read_from_db(prediction_id=None, user_id=None):
     try:
+        stmt = None
+
+        # Query builder
+        base_query = db.select(Predictions).options(
+            selectinload(Predictions.details).selectinload(PredDetails.advices),
+            selectinload(Predictions.details).selectinload(PredDetails.references)
+        )
+
         if prediction_id:
             try:
                 pred_uuid = uuid.UUID(prediction_id)
@@ -791,11 +814,15 @@ def read_from_db(prediction_id=None, user_id=None):
                     "error": "Invalid prediction_id format. Must be a valid UUID string.",
                     "status": "bad_request"
                 }
-            pred = Predictions.query.filter_by(pred_id=pred_uuid).first()
+            
+            # Filter by ID
+            stmt = base_query.filter(Predictions.pred_id == pred_uuid)
+            pred = db.session.execute(stmt).scalar_one_or_none()
+
             if not pred:
                 return {"error": "Prediction not found", "status": "not_found"}
-            
             predictions = [pred]
+
         elif user_id:
             try:
                 user_uuid = uuid.UUID(user_id)
@@ -804,16 +831,21 @@ def read_from_db(prediction_id=None, user_id=None):
                     "error": "Invalid user_id format. Must be a valid UUID string.",
                     "status": "bad_request"
                 }
-            predictions = Predictions.query.filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
+
+            # Filter by User ID + Sort by Date Descending
+            stmt = base_query.filter(Predictions.user_id == user_uuid).order_by(Predictions.pred_date.desc())
+            predictions = db.session.execute(stmt).scalars().all()
+
             if not predictions:
                 return {"error": "No predictions found for this user", "status": "not_found"}
+            
         else:
             return {"error": "Either prediction_id or user_id must be provided", "status": "bad_request"}
         
+        # Data Formatting
         result = []
         
         for pred in predictions:
-            # Base prediction data
             pred_data = {
                 "prediction_id": str(pred.pred_id),
                 "user_id": str(pred.user_id) if pred.user_id else None,
@@ -834,45 +866,26 @@ def read_from_db(prediction_id=None, user_id=None):
                 "details": []
             }
             
-            details = PredDetails.query.filter_by(pred_id=pred.pred_id).all()
-            for detail in details:
+            for detail in pred.details:
                 detail_data = {
                     "factor_name": detail.factor_name,
                     "impact_score": detail.impact_score,
-                    "advices": [],
-                    "references": []
+                    "advices": [a.advice_text for a in detail.advices],
+                    "references": [r.reference_link for r in detail.references]
                 }
-                
-                advices = Advices.query.filter_by(detail_id=detail.detail_id).all()
-                for advice in advices:
-                    detail_data["advices"].append(advice.advice_text)
-                
-                refs = References.query.filter_by(detail_id=detail.detail_id).all()
-                for ref in refs:
-                    detail_data["references"].append(ref.reference_link)
-                
                 pred_data["details"].append(detail_data)
             
             result.append(pred_data)
         
         if prediction_id:
-            return {
-                "status": "success",
-                "data": result[0] if result else None
-            }
+            return {"status": "success", "data": result[0] if result else None}
         else:
-            return {
-                "status": "success",
-                "data": result,
-                "total_predictions": len(result)
-            }
+            return {"status": "success", "data": result, "total_predictions": len(result)}
             
     except Exception as e:
         print(f"Error reading from PostgreSQL: {e}")
-        return {
-            "error": str(e),
-            "status": "error"
-        }
+        traceback.print_exc()
+        return {"error": str(e), "status": "error"}
 
 @app.route('/')
 def home():
@@ -932,6 +945,13 @@ def predict():
 
 @app.route('/result/<prediction_id>', methods=['GET'])
 def get_result(prediction_id):
+    # Validate UUID format
+    if not is_valid_uuid(prediction_id):
+        return jsonify({
+            "error": "Invalid ID format", 
+            "message": "The provided ID must be a standard UUID."
+        }), 400
+    
     # Check Valkey for prediction status
     prediction_data = None
     try:
