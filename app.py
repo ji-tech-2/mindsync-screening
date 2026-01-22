@@ -13,6 +13,7 @@ from datetime import datetime
 import valkey
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import selectinload
 import traceback
 
 # Load environment variables from .env file
@@ -97,6 +98,8 @@ class References(db.Model):
     ref_id = db.Column(db.Integer, primary_key=True)
     detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
     reference_link = db.Column(db.String(500))
+
+
 
 # LAZY DB INIT
 def init_db():
@@ -789,6 +792,14 @@ def save_to_db(app_instance, prediction_id, json_input, prediction_score, wellne
           
 def read_from_db(prediction_id=None, user_id=None):
     try:
+        stmt = None
+
+        # Query builder
+        base_query = db.select(Predictions).options(
+            selectinload(Predictions.details).selectinload(PredDetails.advices),
+            selectinload(Predictions.details).selectinload(PredDetails.references)
+        )
+
         if prediction_id:
             try:
                 pred_uuid = uuid.UUID(prediction_id)
@@ -797,11 +808,15 @@ def read_from_db(prediction_id=None, user_id=None):
                     "error": "Invalid prediction_id format. Must be a valid UUID string.",
                     "status": "bad_request"
                 }
-            pred = Predictions.query.filter_by(pred_id=pred_uuid).first()
+            
+            # Filter by ID
+            stmt = base_query.filter(Predictions.pred_id == pred_uuid)
+            pred = db.session.execute(stmt).scalar_one_or_none()
+
             if not pred:
                 return {"error": "Prediction not found", "status": "not_found"}
-            
             predictions = [pred]
+
         elif user_id:
             try:
                 user_uuid = uuid.UUID(user_id)
@@ -810,16 +825,21 @@ def read_from_db(prediction_id=None, user_id=None):
                     "error": "Invalid user_id format. Must be a valid UUID string.",
                     "status": "bad_request"
                 }
-            predictions = Predictions.query.filter_by(user_id=user_uuid).order_by(Predictions.pred_date.desc()).all()
+
+            # Filter by User ID + Sort by Date Descending
+            stmt = base_query.filter(Predictions.user_id == user_uuid).order_by(Predictions.pred_date.desc())
+            predictions = db.session.execute(stmt).scalars().all()
+
             if not predictions:
                 return {"error": "No predictions found for this user", "status": "not_found"}
+            
         else:
             return {"error": "Either prediction_id or user_id must be provided", "status": "bad_request"}
         
+        # Data Formatting
         result = []
         
         for pred in predictions:
-            # Base prediction data
             pred_data = {
                 "prediction_id": str(pred.pred_id),
                 "user_id": str(pred.user_id) if pred.user_id else None,
@@ -840,45 +860,26 @@ def read_from_db(prediction_id=None, user_id=None):
                 "details": []
             }
             
-            details = PredDetails.query.filter_by(pred_id=pred.pred_id).all()
-            for detail in details:
+            for detail in pred.details:
                 detail_data = {
                     "factor_name": detail.factor_name,
                     "impact_score": detail.impact_score,
-                    "advices": [],
-                    "references": []
+                    "advices": [a.advice_text for a in detail.advices],
+                    "references": [r.reference_link for r in detail.references]
                 }
-                
-                advices = Advices.query.filter_by(detail_id=detail.detail_id).all()
-                for advice in advices:
-                    detail_data["advices"].append(advice.advice_text)
-                
-                refs = References.query.filter_by(detail_id=detail.detail_id).all()
-                for ref in refs:
-                    detail_data["references"].append(ref.reference_link)
-                
                 pred_data["details"].append(detail_data)
             
             result.append(pred_data)
         
         if prediction_id:
-            return {
-                "status": "success",
-                "data": result[0] if result else None
-            }
+            return {"status": "success", "data": result[0] if result else None}
         else:
-            return {
-                "status": "success",
-                "data": result,
-                "total_predictions": len(result)
-            }
+            return {"status": "success", "data": result, "total_predictions": len(result)}
             
     except Exception as e:
         print(f"Error reading from PostgreSQL: {e}")
-        return {
-            "error": str(e),
-            "status": "error"
-        }
+        traceback.print_exc()
+        return {"error": str(e), "status": "error"}
 
 @app.route('/')
 def home():
