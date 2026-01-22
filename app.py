@@ -98,10 +98,26 @@ class References(db.Model):
     detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
     reference_link = db.Column(db.String(500))
 
-# Create Tables if not exist
-with app.app_context():
-    # db.drop_all()  # Uncomment if you want to reset
-    db.create_all()
+# LAZY DB INIT
+def init_db():
+    """Initialize database tables safely."""
+    try:
+        with app.app_context():
+            # db.drop_all() # Do not uncomment in production
+            db.create_all()
+            print("✅ Database tables initialized.")
+    except Exception as e:
+        print(f"❌ Database not ready yet: {e}")
+
+db_initialized = False
+
+@app.before_request
+def check_db_init():
+    """Lazy load database creation on first request."""
+    global db_initialized
+    if not db_initialized:
+        init_db()
+        db_initialized = True
 
 # --- DEFINE THE CUSTOM CLEANER FUNCTION ---
 # This must exist exactly as it did in the notebook
