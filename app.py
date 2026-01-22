@@ -99,7 +99,13 @@ class References(db.Model):
     detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
     reference_link = db.Column(db.String(500))
 
-
+# --- HELPER: UUID VALIDATION ---
+def is_valid_uuid(val):
+    try:
+        uuid.UUID(str(val))
+        return True
+    except ValueError:
+        return False
 
 # LAZY DB INIT
 def init_db():
@@ -939,6 +945,13 @@ def predict():
 
 @app.route('/result/<prediction_id>', methods=['GET'])
 def get_result(prediction_id):
+    # Validate UUID format
+    if not is_valid_uuid(prediction_id):
+        return jsonify({
+            "error": "Invalid ID format", 
+            "message": "The provided ID must be a standard UUID."
+        }), 400
+    
     # Check Valkey for prediction status
     prediction_data = None
     try:
