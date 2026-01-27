@@ -181,9 +181,11 @@ docker run -p 5000:5000 --env-file .env mindsync-api
 
 ## 📝 Important Notes
 
-- **Database**: Optional untuk development (app akan show warning tapi tetap jalan)
-- **Valkey/Redis**: Optional (prediksi tetap jalan tanpa caching)
-- **Gemini API**: Wajib untuk fitur AI advice
+- **Storage backend (Database atau Valkey/Redis)**: Minimal **salah satu** harus tersedia agar flow `/predict` → `/result` bisa bekerja penuh (status bisa berubah menjadi `ready`).
+  - Jika `DB_DISABLED=True` **dan** Valkey/Redis tidak tersedia, endpoint `/predict` tetap akan mengembalikan `202` dengan `prediction_id`, tetapi `/result` untuk ID tersebut tidak akan pernah selesai (status tidak akan menjadi `ready`).
+- **Database**: Bisa dibuat optional untuk development **jika** Valkey/Redis aktif; app akan menampilkan warning tetapi prediksi tetap bisa diproses dan dilacak melalui cache.
+- **Valkey/Redis**: Optional **jika** database aktif; tanpa cache performa bisa lebih lambat, namun prediksi dan tracking status tetap berjalan melalui database.
+- **Gemini API**: Wajib untuk fitur AI advice; tanpa `GEMINI_API_KEY` endpoint terkait AI akan gagal (sebaiknya ditangani dengan error yang jelas di API).
 
 ## 🔧 Development Guide
 
