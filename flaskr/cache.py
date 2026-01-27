@@ -61,6 +61,11 @@ def fetch_prediction(prediction_id):
         print(f"Valkey fetch error: {e}")
         return None
 
+def is_available():
+    """Check if Valkey cache is available."""
+    return valkey_client is not None
+
+
 def update_prediction(prediction_id, update_data):
     """Update existing prediction data."""
     if valkey_client is None:

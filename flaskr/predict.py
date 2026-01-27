@@ -24,6 +24,16 @@ def predict():
         return jsonify({
             "error": "Model failed to load. Check server logs."
         }), 500
+    
+    # Check if at least one storage backend is available
+    db_enabled = not current_app.config.get('DB_DISABLED', False)
+    cache_available = cache.is_available()
+    
+    if not db_enabled and not cache_available:
+        return jsonify({
+            "error": "No storage backend available",
+            "message": "Both database and cache are unavailable. Cannot process predictions."
+        }), 503
 
     try:
         json_input = request.get_json()

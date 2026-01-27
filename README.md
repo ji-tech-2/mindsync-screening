@@ -20,16 +20,9 @@ mindsync-model-flask/
 │   ├── preprocessor.pkl
 │   ├── model_coefficients.csv
 │   └── healthy_cluster_avg.csv
-├── tests/                     # Unit tests
-│   ├── conftest.py
-│   └── test_basic.py
 ├── .env                       # Environment variables
 ├── wsgi.py                    # Application entry point
-├── pyproject.toml             # Project configuration
 ├── requirements.txt           # Python dependencies
-├── run.ps1                    # PowerShell run script
-├── run.bat                    # Batch run script
-├── app.py                     # OLD - Legacy file (not used)
 └── README.md
 ```
 
@@ -161,16 +154,39 @@ Response: 200 OK (when ready)
 
 ## 🧪 Testing
 
+### Manual API Testing
+
+Gunakan script `test_api_manual.py` untuk menguji API secara manual:
+
 ```bash
-# Install test dependencies
-pip install -e ".[dev]"
+# Pastikan server sudah berjalan di terminal lain
+python wsgi.py
 
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=flaskr tests/
+# Di terminal baru, jalankan test script
+python test_api_manual.py
 ```
+
+Script ini akan:
+1. Mengirim prediction request ke `/predict`
+2. Polling `/result/<prediction_id>` sampai selesai
+3. Menampilkan hasil prediksi dan AI advice
+
+### Testing dengan cURL
+
+```bash
+# Health check
+curl http://localhost:5000/
+
+# Submit prediction
+curl -X POST http://localhost:5000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"screen_time_hours": 8, "work_screen_hours": 6, "leisure_screen_hours": 2, "sleep_hours": 7, "sleep_quality_1_5": 3, "stress_level_0_10": 5, "productivity_0_100": 70, "exercise_minutes_per_week": 150, "social_hours_per_week": 10}'
+
+# Check result (ganti <prediction_id> dengan ID dari response sebelumnya)
+curl http://localhost:5000/result/<prediction_id>
+```
+
+> **Note:** Automated pytest tests belum diimplementasikan. Untuk kontribusi test suite, silakan buat `tests/` directory dan tambahkan pytest ke requirements.
 
 ## 🐳 Docker Deployment
 
@@ -181,9 +197,11 @@ docker run -p 5000:5000 --env-file .env mindsync-api
 
 ## 📝 Important Notes
 
-- **Database**: Optional untuk development (app akan show warning tapi tetap jalan)
-- **Valkey/Redis**: Optional (prediksi tetap jalan tanpa caching)
-- **Gemini API**: Wajib untuk fitur AI advice
+- **Storage backend (Database atau Valkey/Redis)**: Minimal **salah satu** harus tersedia agar flow `/predict` → `/result` bisa bekerja penuh (status bisa berubah menjadi `ready`).
+  - Jika `DB_DISABLED=True` **dan** Valkey/Redis tidak tersedia, endpoint `/predict` tetap akan mengembalikan `202` dengan `prediction_id`, tetapi `/result` untuk ID tersebut tidak akan pernah selesai (status tidak akan menjadi `ready`).
+- **Database**: Bisa dibuat optional untuk development **jika** Valkey/Redis aktif; app akan menampilkan warning tetapi prediksi tetap bisa diproses dan dilacak melalui cache.
+- **Valkey/Redis**: Optional **jika** database aktif; tanpa cache performa bisa lebih lambat, namun prediksi dan tracking status tetap berjalan melalui database.
+- **Gemini API**: Wajib untuk fitur AI advice; tanpa `GEMINI_API_KEY` endpoint terkait AI akan gagal (sebaiknya ditangani dengan error yang jelas di API).
 
 ## 🔧 Development Guide
 
