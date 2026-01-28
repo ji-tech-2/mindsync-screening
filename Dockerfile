@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. Copy Code and Artifacts
 COPY artifacts/ ./artifacts/
-COPY app.py .
+COPY wsgi.py .
+COPY flaskr/ ./flaskr/
 
 # 6. Security: Run as non-root user
 RUN useradd -m modeluser
@@ -30,4 +31,4 @@ EXPOSE 5000
 
 # 8. Run Command
 # We force Gunicorn to bind to 5000 to match your expectations
-CMD ["python", "app.py"]
+CMD ["python", "wsgi.py"]
