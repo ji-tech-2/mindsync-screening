@@ -324,6 +324,121 @@ def get_weekly_critical_factors():
             "status": "error"
         }), 500
 
+
+@bp.route('/daily-suggestion', methods=['GET'])
+def get_daily_suggestion():
+    """
+    Get AI-powered daily suggestion based on today's areas of improvement.
+    
+    Query params:
+        user_id (required): User UUID to get today's suggestions for
+    """
+    from flask import current_app
+    
+    # Check if database is enabled
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "error": "Database is disabled",
+            "message": "This endpoint requires database access.",
+            "status": "unavailable"
+        }), 503
+    
+    try:
+        # Parse query parameters
+        user_id = request.args.get('user_id')
+        
+        # Validate user_id
+        if not user_id:
+            return jsonify({
+                "error": "Missing user_id",
+                "message": "user_id query parameter is required.",
+                "status": "bad_request"
+            }), 400
+        
+        if not is_valid_uuid(user_id):
+            return jsonify({
+                "error": "Invalid user_id format",
+                "message": "user_id must be a valid UUID.",
+                "status": "bad_request"
+            }), 400
+        
+        # Calculate today's date range (midnight to midnight)
+        today = datetime.utcnow().date()
+        start_of_day = datetime.combine(today, datetime.min.time())
+        end_of_day = datetime.combine(today, datetime.max.time())
+        
+        # Query today's predictions for this user
+        query = db.session.query(
+            PredDetails.factor_name,
+            func.avg(PredDetails.impact_score).label('avg_impact_score')
+        ).join(
+            Predictions, Predictions.pred_id == PredDetails.pred_id
+        ).filter(
+            Predictions.user_id == uuid.UUID(user_id),
+            Predictions.pred_date >= start_of_day,
+            Predictions.pred_date <= end_of_day,
+            PredDetails.impact_score > 0  # Only areas for improvement
+        ).group_by(
+            PredDetails.factor_name
+        ).order_by(
+            func.avg(PredDetails.impact_score).desc()
+        ).limit(3).all()
+        
+        # Format the results
+        top_factors = []
+        for row in query:
+            top_factors.append({
+                "factor_name": row.factor_name,
+                "impact_score": float(row.avg_impact_score) if row.avg_impact_score else 0.0
+            })
+        
+        # Get today's prediction count
+        prediction_count = db.session.query(
+            func.count(Predictions.pred_id)
+        ).filter(
+            Predictions.user_id == uuid.UUID(user_id),
+            Predictions.pred_date >= start_of_day,
+            Predictions.pred_date <= end_of_day
+        ).scalar() or 0
+        
+        # Generate AI advice for today's factors
+        api_key = current_app.config.get('GEMINI_API_KEY')
+        ai_advice = None
+        
+        if top_factors and api_key:
+            ai_advice = ai.get_daily_advice(top_factors, api_key)
+        elif not api_key:
+            ai_advice = {
+                "description": "AI advice unavailable (API key not configured)",
+                "tip_of_the_day": "Take a moment to reflect on your wellness today.",
+                "factors": {}
+            }
+        elif not top_factors:
+            ai_advice = {
+                "description": "No check-ins yet today. Complete a wellness check to get personalized suggestions!",
+                "tip_of_the_day": "Start your day with a quick wellness check-in.",
+                "factors": {}
+            }
+        
+        return jsonify({
+            "status": "success",
+            "date": today.isoformat(),
+            "user_id": user_id,
+            "stats": {
+                "predictions_today": prediction_count
+            },
+            "areas_of_improvement": top_factors,
+            "suggestion": ai_advice
+        }), 200
+    
+    except Exception as e:
+        print(f"Error in daily suggestion: {e}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
+
+
 # ===================== #
 #   HELPER FUNCTIONS    #
 # ===================== #

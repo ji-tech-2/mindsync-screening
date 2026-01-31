@@ -202,3 +202,113 @@ def get_weekly_advice(top_factors, api_key):
             "description": "We encountered a temporary issue generating your weekly summary.",
             "factors": {}
         }
+
+
+def get_daily_advice(top_factors, api_key):
+    """
+    Generate AI advice for today's areas of improvement.
+    
+    Args:
+        top_factors: List of dicts with 'factor_name' and 'impact_score'
+        api_key: Gemini API key
+    
+    Returns:
+        Dict with description and advice for each factor
+    """
+    if not top_factors:
+        return {
+            "description": "You're doing great today! Keep up the good work.",
+            "factors": {}
+        }
+    
+    # Build factor context
+    factors_list = [f["factor_name"] for f in top_factors]
+    factors_inline_str = ", ".join(factors_list)
+    factors_bullet_list = "\n".join([
+        f"- {f['factor_name']} (impact score: {f['impact_score']:.2f})"
+        for f in top_factors
+    ])
+
+    # Trusted resources
+    trusted_sources_context = """
+    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep
+    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome
+    - https://www.sleepfoundation.org/sleep-hygiene
+    - https://www.cdc.gov/sleep/about/index.html
+    - https://www.apa.org/topics/stress/tips
+    - https://www.nimh.nih.gov/health/topics/caring-for-your-mental-health
+    - https://www.who.int/news-room/fact-sheets/detail/physical-activity
+    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults
+    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships
+    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/
+    - https://youtu.be/dlgCJd1cfy8?si=mmk2X8vvUGjtvWBJ
+    """
+
+    prompt = f"""
+    Role: You are 'MindSync', a mental health AI advisor providing a daily wellness tip.
+    
+    Context:
+    Based on the user's check-in today, here are the areas that need attention:
+    {factors_bullet_list}
+    
+    Task:
+    Generate a daily suggestion with actionable advice. Return STRICTLY as a JSON object:
+    
+    {{
+        "description": "String (warm, motivating daily message - 2-3 sentences)",
+        "tip_of_the_day": "String (one key actionable tip for today)",
+        "factors": {{
+            "FACTOR_NAME_1": {{
+                "quick_tip": "String (one quick actionable tip for today)",
+                "why_it_matters": "String (brief explanation why this matters)",
+                "reference": "URL"
+            }},
+            "FACTOR_NAME_2": {{
+                ...
+            }}
+        }}
+    }}
+
+    Requirements:
+
+    1. "description": 
+       - Write a warm, motivating daily greeting.
+       - Keep it brief and uplifting (2-3 sentences max).
+       - Acknowledge today's focus areas: {factors_inline_str}.
+
+    2. "tip_of_the_day":
+       - One key actionable tip the user can do TODAY.
+       - Should address the most impactful factor.
+
+    3. "factors":
+       - Create a key for EACH of these factors: {factors_inline_str}.
+       - For each factor, provide:
+         a. "quick_tip": One simple action for today.
+         b. "why_it_matters": Brief explanation (1 sentence).
+         c. "reference": One relevant URL from:
+            {trusted_sources_context}
+    
+    Tone: Friendly, encouraging, actionable.
+    Language: English (Standard US).
+    """
+
+    try:
+        client = genai.Client(api_key=api_key)
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.7,
+                response_mime_type="application/json"
+            )
+        )
+        return json.loads(response.text.strip())
+    
+    except Exception as e:
+        print(f"Gemini API Error (daily advice): {e}")
+        return {
+            "description": "We encountered a temporary issue generating your daily suggestion.",
+            "tip_of_the_day": "Take a moment to breathe and be kind to yourself today.",
+            "factors": {}
+        }
