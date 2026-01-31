@@ -19,8 +19,17 @@ mindsync-model-flask/
 │   ├── model.pkl
 │   ├── preprocessor.pkl
 │   ├── model_coefficients.csv
+│   ├── feature_importance.csv
 │   └── healthy_cluster_avg.csv
+├── tests/                     # Unit tests
+│   ├── __init__.py
+│   ├── test_core_endpoints.py      # Health, predict, result, advice tests
+│   └── test_weekly_daily_endpoints.py  # Weekly/daily suggestion tests
+├── notebook/                  # Jupyter notebooks
+│   └── final_FINAL.ipynb
 ├── .env                       # Environment variables
+├── .dockerignore              # Docker ignore rules
+├── Dockerfile                 # Docker configuration
 ├── wsgi.py                    # Application entry point
 ├── requirements.txt           # Python dependencies
 └── README.md
