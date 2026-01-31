@@ -239,7 +239,7 @@ def get_weekly_critical_factors():
             }), 400
         
         # Calculate date range
-        end_date = datetime.utcnow()
+        end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
         # Build query to get top critical factors
@@ -299,6 +299,11 @@ def get_weekly_critical_factors():
         elif not api_key:
             ai_advice = {
                 "description": "AI advice unavailable (API key not configured)",
+                "factors": {}
+            }
+        elif not top_factors:
+            ai_advice = {
+                "description": "No wellness data recorded in this period. Complete wellness checks to get personalized weekly insights!",
                 "factors": {}
             }
         
@@ -363,12 +368,12 @@ def get_daily_suggestion():
             }), 400
         
         # Calculate today's date range (midnight to midnight)
-        today = datetime.utcnow().date()
+        today = datetime.now().date()
         start_of_day = datetime.combine(today, datetime.min.time())
         end_of_day = datetime.combine(today, datetime.max.time())
         
         # Query today's predictions for this user
-        query = db.session.query(
+        results = db.session.query(
             PredDetails.factor_name,
             func.avg(PredDetails.impact_score).label('avg_impact_score')
         ).join(
@@ -386,7 +391,7 @@ def get_daily_suggestion():
         
         # Format the results
         top_factors = []
-        for row in query:
+        for row in results:
             top_factors.append({
                 "factor_name": row.factor_name,
                 "impact_score": float(row.avg_impact_score) if row.avg_impact_score else 0.0

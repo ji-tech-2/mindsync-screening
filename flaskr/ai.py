@@ -5,6 +5,21 @@ import json
 from google import genai
 from google.genai import types
 
+# Trusted resources for AI advice
+TRUSTED_SOURCES = """
+    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep
+    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome
+    - https://www.sleepfoundation.org/sleep-hygiene
+    - https://www.cdc.gov/sleep/about/index.html
+    - https://www.apa.org/topics/stress/tips
+    - https://www.nimh.nih.gov/health/topics/caring-for-your-mental-health
+    - https://www.who.int/news-room/fact-sheets/detail/physical-activity
+    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults
+    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships
+    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/
+    - https://youtu.be/dlgCJd1cfy8?si=mmk2X8vvUGjtvWBJ
+    """
+
 def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key):
     """Generate personalized AI advice using Gemini."""
     
@@ -22,21 +37,6 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
     else:
         factors_inline_str = "General Wellness"
         factors_bullet_list = "- General Wellness"
-
-    # Trusted resources
-    trusted_sources_context = """
-    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep
-    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome
-    - https://www.sleepfoundation.org/sleep-hygiene
-    - https://www.cdc.gov/sleep/about/index.html
-    - https://www.apa.org/topics/stress/tips
-    - https://www.nimh.nih.gov/health/topics/caring-for-your-mental-health
-    - https://www.who.int/news-room/fact-sheets/detail/physical-activity
-    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults
-    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships
-    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/
-    - https://youtu.be/dlgCJd1cfy8?si=mmk2X8vvUGjtvWBJ
-    """
 
     # Prompt for Gemini
     prompt = f"""
@@ -74,7 +74,7 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
        - For each factor, provide:
          a. "advices" (Array of Strings): Exactly 3 actionable tips specific to that factor.
          b. "references" (Array of Strings): Select 1 to 3 relevant URLs specifically for this factor from the list below:
-            {trusted_sources_context}
+            {TRUSTED_SOURCES}
             (If no link matches perfectly, use a general mental health link).
     
     Tone: Professional, warm, non-judgmental.
@@ -94,6 +94,13 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
         )
         return json.loads(response.text.strip())
     
+    except json.JSONDecodeError as e:
+        print(f"Gemini API JSON Parse Error: {e}")
+        print(f"Raw response: {response.text[:500] if response and response.text else 'No response'}")
+        return {
+            "description": "We encountered an issue processing the AI response. Please try again.",
+            "factors": {}
+        }
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return {
@@ -126,21 +133,6 @@ def get_weekly_advice(top_factors, api_key):
         f"- {f['factor_name']} (appeared {f['count']} times, avg impact: {f['avg_impact_score']:.2f})"
         for f in top_factors
     ])
-
-    # Trusted resources
-    trusted_sources_context = """
-    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep
-    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome
-    - https://www.sleepfoundation.org/sleep-hygiene
-    - https://www.cdc.gov/sleep/about/index.html
-    - https://www.apa.org/topics/stress/tips
-    - https://www.nimh.nih.gov/health/topics/caring-for-your-mental-health
-    - https://www.who.int/news-room/fact-sheets/detail/physical-activity
-    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults
-    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships
-    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/
-    - https://youtu.be/dlgCJd1cfy8?si=mmk2X8vvUGjtvWBJ
-    """
 
     prompt = f"""
     Role: You are 'MindSync', a mental health AI advisor providing a weekly wellness summary.
@@ -177,7 +169,7 @@ def get_weekly_advice(top_factors, api_key):
        - For each factor, provide:
          a. "advices" (Array of Strings): Exactly 3 actionable weekly goals/tips specific to that factor.
          b. "references" (Array of Strings): 1-3 relevant URLs from:
-            {trusted_sources_context}
+            {TRUSTED_SOURCES}
     
     Tone: Professional, warm, encouraging, focused on weekly improvement.
     Language: English (Standard US).
@@ -196,6 +188,13 @@ def get_weekly_advice(top_factors, api_key):
         )
         return json.loads(response.text.strip())
     
+    except json.JSONDecodeError as e:
+        print(f"Gemini API JSON Parse Error (weekly advice): {e}")
+        print(f"Raw response: {response.text[:500] if response and response.text else 'No response'}")
+        return {
+            "description": "We encountered an issue processing the AI response. Please try again.",
+            "factors": {}
+        }
     except Exception as e:
         print(f"Gemini API Error (weekly advice): {e}")
         return {
@@ -228,21 +227,6 @@ def get_daily_advice(top_factors, api_key):
         f"- {f['factor_name']} (impact score: {f['impact_score']:.2f})"
         for f in top_factors
     ])
-
-    # Trusted resources
-    trusted_sources_context = """
-    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep
-    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome
-    - https://www.sleepfoundation.org/sleep-hygiene
-    - https://www.cdc.gov/sleep/about/index.html
-    - https://www.apa.org/topics/stress/tips
-    - https://www.nimh.nih.gov/health/topics/caring-for-your-mental-health
-    - https://www.who.int/news-room/fact-sheets/detail/physical-activity
-    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults
-    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships
-    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/
-    - https://youtu.be/dlgCJd1cfy8?si=mmk2X8vvUGjtvWBJ
-    """
 
     prompt = f"""
     Role: You are 'MindSync', a mental health AI advisor providing a daily wellness tip.
@@ -286,7 +270,7 @@ def get_daily_advice(top_factors, api_key):
          a. "quick_tip": One simple action for today.
          b. "why_it_matters": Brief explanation (1 sentence).
          c. "reference": One relevant URL from:
-            {trusted_sources_context}
+            {TRUSTED_SOURCES}
     
     Tone: Friendly, encouraging, actionable.
     Language: English (Standard US).
@@ -305,6 +289,14 @@ def get_daily_advice(top_factors, api_key):
         )
         return json.loads(response.text.strip())
     
+    except json.JSONDecodeError as e:
+        print(f"Gemini API JSON Parse Error (daily advice): {e}")
+        print(f"Raw response: {response.text[:500] if response and response.text else 'No response'}")
+        return {
+            "description": "We encountered an issue processing the AI response. Please try again.",
+            "tip_of_the_day": "Take a moment to breathe and be kind to yourself today.",
+            "factors": {}
+        }
     except Exception as e:
         print(f"Gemini API Error (daily advice): {e}")
         return {
