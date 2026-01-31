@@ -4,9 +4,10 @@ Prediction routes and business logic
 import uuid
 import threading
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.orm import selectinload
+from sqlalchemy import func
 
 from . import model, cache, ai
 from .db import db, Predictions, PredDetails, Advices, References, is_valid_uuid
@@ -202,6 +203,126 @@ def advice():
             "error": str(e),
             "status": "error"
         }), 400
+
+
+@bp.route('/weekly-critical-factors', methods=['GET'])
+def get_weekly_critical_factors():
+    """
+    Get the top 3 most frequent areas_for_improvement from the last week.
+    Also generates AI advice for these critical factors.
+    
+    Query params:
+        user_id (optional): Filter by specific user
+        days (optional): Number of days to look back (default: 7)
+    """
+    from flask import current_app
+    
+    # Check if database is enabled
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "error": "Database is disabled",
+            "message": "This endpoint requires database access.",
+            "status": "unavailable"
+        }), 503
+    
+    try:
+        # Parse query parameters
+        user_id = request.args.get('user_id')
+        days = request.args.get('days', 7, type=int)
+        
+        # Validate user_id if provided
+        if user_id and not is_valid_uuid(user_id):
+            return jsonify({
+                "error": "Invalid user_id format",
+                "message": "user_id must be a valid UUID.",
+                "status": "bad_request"
+            }), 400
+        
+        # Calculate date range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Build query to get top critical factors
+        query = db.session.query(
+            PredDetails.factor_name,
+            func.count(PredDetails.factor_name).label('occurrence_count'),
+            func.avg(PredDetails.impact_score).label('avg_impact_score')
+        ).join(
+            Predictions, Predictions.pred_id == PredDetails.pred_id
+        ).filter(
+            Predictions.pred_date >= start_date,
+            Predictions.pred_date <= end_date,
+            PredDetails.impact_score > 0  # Only areas for improvement (positive impact)
+        )
+        
+        # Filter by user if provided
+        if user_id:
+            query = query.filter(Predictions.user_id == uuid.UUID(user_id))
+        
+        # Group by factor and order by frequency
+        results = query.group_by(
+            PredDetails.factor_name
+        ).order_by(
+            func.count(PredDetails.factor_name).desc()
+        ).limit(3).all()
+        
+        # Format the results
+        top_factors = []
+        for row in results:
+            top_factors.append({
+                "factor_name": row.factor_name,
+                "count": row.occurrence_count,
+                "avg_impact_score": float(row.avg_impact_score) if row.avg_impact_score else 0.0
+            })
+        
+        # Get additional stats
+        total_predictions = db.session.query(
+            func.count(Predictions.pred_id)
+        ).filter(
+            Predictions.pred_date >= start_date,
+            Predictions.pred_date <= end_date
+        )
+        
+        if user_id:
+            total_predictions = total_predictions.filter(
+                Predictions.user_id == uuid.UUID(user_id)
+            )
+        
+        total_count = total_predictions.scalar() or 0
+        
+        # Generate AI advice for these critical factors
+        api_key = current_app.config.get('GEMINI_API_KEY')
+        ai_advice = None
+        
+        if top_factors and api_key:
+            ai_advice = ai.get_weekly_advice(top_factors, api_key)
+        elif not api_key:
+            ai_advice = {
+                "description": "AI advice unavailable (API key not configured)",
+                "factors": {}
+            }
+        
+        return jsonify({
+            "status": "success",
+            "period": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days
+            },
+            "stats": {
+                "total_predictions": total_count,
+                "user_id": user_id
+            },
+            "top_critical_factors": top_factors,
+            "advice": ai_advice
+        }), 200
+    
+    except Exception as e:
+        print(f"Error in weekly critical factors: {e}")
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
 
 # ===================== #
 #   HELPER FUNCTIONS    #
