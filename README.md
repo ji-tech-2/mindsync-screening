@@ -133,6 +133,28 @@ Response: 200 OK (when ready)
 }
 ```
 
+### Get User Streak 
+```
+GET /streak/<user_id>
+
+Response: 200 OK
+{
+  "status": "success",
+  "data": {
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "daily": {
+      "current": 5,
+      "last_date": "2026-02-02"
+    },
+    "weekly": {
+      "current": 2,
+      "last_date": "2026-02-02"
+    }
+  }
+}
+```
+
+
 ## 🏗️ Architecture
 
 ### Application Factory Pattern
