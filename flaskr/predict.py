@@ -224,8 +224,8 @@ def get_streak(user_id):
                 "status": "success",
                 "data": {
                     "user_id": user_id,
-                    "daily": {"current": 0, "longest": 0, "last_date": None},
-                    "weekly": {"current": 0, "longest": 0, "last_date": None}
+                    "daily": {"current": 0, "last_date": None},
+                    "weekly": {"current": 0, "last_date": None}
                 }
             }), 200
             
@@ -382,9 +382,7 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                         curr_daily_streak=1,
                         last_daily_date=today,
                         curr_weekly_streak=1,
-                        last_weekly_date=today,
-                        longest_daily_streak=1,
-                        longest_weekly_streak=1
+                        last_weekly_date=today
                     )
                     db.session.add(new_streak)
                 
@@ -397,9 +395,6 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                     elif last_daily == today - timedelta(days=1):
                         streak_record.curr_daily_streak += 1
                         streak_record.last_daily_date = today
-                        # Update Max
-                        if streak_record.curr_daily_streak > streak_record.longest_daily_streak:
-                            streak_record.longest_daily_streak = streak_record.curr_daily_streak
                     else:
                         streak_record.curr_daily_streak = 1 # Reset Daily
                         streak_record.last_daily_date = today
@@ -422,9 +417,6 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                             # Exactly one week later (Consecutive week) -> Streak +1
                             streak_record.curr_weekly_streak += 1
                             streak_record.last_weekly_date = today
-                            # Update Max
-                            if streak_record.curr_weekly_streak > streak_record.longest_weekly_streak:
-                                streak_record.longest_weekly_streak = streak_record.curr_weekly_streak
                         else:
                             # Gap > 1 week -> Reset Weekly
                             streak_record.curr_weekly_streak = 1
