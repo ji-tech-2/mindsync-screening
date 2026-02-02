@@ -373,7 +373,9 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
         if u_id:
             try:
                 today = datetime.utcnow().date()
-                streak_record = UserStreaks.query.get(u_id)
+                streak_record = db.session.query(UserStreaks).filter(
+                    UserStreaks.user_id == u_id
+                ).with_for_update().one_or_none()
                 
                 if not streak_record:
                     # New User: Start both streaks
