@@ -206,6 +206,13 @@ def advice():
 @bp.route('/streak/<user_id>', methods=['GET'])
 def get_streak(user_id):
     """Get current streak status (Daily & Weekly) for a user."""
+
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "status": "error",
+            "message": "Database is disabled. Streak data unavailable."
+        }), 503
+
     if not is_valid_uuid(user_id):
         return jsonify({"error": "Invalid user_id format. Must be a valid UUID string."}), 400
         
@@ -306,7 +313,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
         })
 
 def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
-    """Save prediction results to PostgreSQL database."""
+    """
+    Save prediction results AND update Daily/Weekly streaks.
+    Returns: True if streak updated successfully (or no user_id), False if streak failed.
+    """
     from flask import current_app
     if current_app.config.get('DB_DISABLED', False):
         print("ℹ️ DB disabled, skipping save_to_db.")
