@@ -413,26 +413,23 @@ def get_daily_suggestion():
         if top_factors and api_key:
             ai_advice = ai.get_daily_advice(top_factors, api_key)
         elif not api_key:
-            ai_advice = {
-                "description": "AI advice unavailable (API key not configured)",
-                "tip_of_the_day": "Take a moment to reflect on your wellness today.",
-                "factors": {}
-            }
+            ai_advice = "AI advice unavailable. Take a moment to reflect on your wellness today."
         elif not top_factors:
-            ai_advice = {
-                "description": "No check-ins yet today. Complete a wellness check to get personalized suggestions!",
-                "tip_of_the_day": "Start your day with a quick wellness check-in.",
-                "factors": {}
-            }
+            ai_advice = "No check-ins yet today. Complete a wellness check to get personalized suggestions!"
         
-        return jsonify({
-            "status": "success",
+        # Keep these variables for future database storage
+        response_data = {
             "date": today.isoformat(),
             "user_id": user_id,
             "stats": {
                 "predictions_today": prediction_count
             },
             "areas_of_improvement": top_factors,
+        }
+        # TODO: Save response_data to database when schema is updated
+        
+        return jsonify({
+            "status": "success",
             "suggestion": ai_advice
         }), 200
     

@@ -205,20 +205,17 @@ def get_weekly_advice(top_factors, api_key):
 
 def get_daily_advice(top_factors, api_key):
     """
-    Generate AI advice for today's areas of improvement.
+    Generate a short AI suggestion for today's areas of improvement.
     
     Args:
         top_factors: List of dicts with 'factor_name' and 'impact_score'
         api_key: Gemini API key
     
     Returns:
-        Dict with description and advice for each factor
+        String with 2-3 sentence suggestion
     """
     if not top_factors:
-        return {
-            "description": "You're doing great today! Keep up the good work.",
-            "factors": {}
-        }
+        return "You're doing great today! Keep up the good work."
     
     # Build factor context
     factors_list = [f["factor_name"] for f in top_factors]
@@ -236,41 +233,15 @@ def get_daily_advice(top_factors, api_key):
     {factors_bullet_list}
     
     Task:
-    Generate a daily suggestion with actionable advice. Return STRICTLY as a JSON object:
+    Generate a short, actionable daily suggestion in exactly 2-3 sentences.
     
-    {{
-        "description": "String (warm, motivating daily message - 2-3 sentences)",
-        "tip_of_the_day": "String (one key actionable tip for today)",
-        "factors": {{
-            "FACTOR_NAME_1": {{
-                "quick_tip": "String (one quick actionable tip for today)",
-                "why_it_matters": "String (brief explanation why this matters)",
-                "reference": "URL"
-            }},
-            "FACTOR_NAME_2": {{
-                ...
-            }}
-        }}
-    }}
-
     Requirements:
-
-    1. "description": 
-       - Write a warm, motivating daily greeting.
-       - Keep it brief and uplifting (2-3 sentences max).
-       - Acknowledge today's focus areas: {factors_inline_str}.
-
-    2. "tip_of_the_day":
-       - One key actionable tip the user can do TODAY.
-       - Should address the most impactful factor.
-
-    3. "factors":
-       - Create a key for EACH of these factors: {factors_inline_str}.
-       - For each factor, provide:
-         a. "quick_tip": One simple action for today.
-         b. "why_it_matters": Brief explanation (1 sentence).
-         c. "reference": One relevant URL from:
-            {TRUSTED_SOURCES}
+    - Address all the factors: {factors_inline_str}
+    - Be warm, encouraging, and actionable
+    - Keep it concise - no more than 3 sentences total
+    - Include one specific tip the user can do today
+    
+    Return ONLY the plain text suggestion, no JSON or formatting.
     
     Tone: Friendly, encouraging, actionable.
     Language: English (Standard US).
@@ -283,24 +254,11 @@ def get_daily_advice(top_factors, api_key):
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
-                response_mime_type="application/json"
+                temperature=0.7
             )
         )
-        return json.loads(response.text.strip())
+        return response.text.strip()
     
-    except json.JSONDecodeError as e:
-        print(f"Gemini API JSON Parse Error (daily advice): {e}")
-        print(f"Raw response: {response.text[:500] if response and response.text else 'No response'}")
-        return {
-            "description": "We encountered an issue processing the AI response. Please try again.",
-            "tip_of_the_day": "Take a moment to breathe and be kind to yourself today.",
-            "factors": {}
-        }
     except Exception as e:
         print(f"Gemini API Error (daily advice): {e}")
-        return {
-            "description": "We encountered a temporary issue generating your daily suggestion.",
-            "tip_of_the_day": "Take a moment to breathe and be kind to yourself today.",
-            "factors": {}
-        }
+        return "Take a moment to focus on your wellness today. Small steps lead to big improvements!"
