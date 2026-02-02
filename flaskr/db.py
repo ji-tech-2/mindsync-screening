@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import CheckConstraint
 
 db = SQLAlchemy()
 
@@ -91,6 +92,17 @@ class UserStreaks(db.Model):
     # Weekly check-in streaks
     curr_weekly_streak = db.Column(db.Integer, default=0)
     last_weekly_date = db.Column(db.Date, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            '(curr_daily_streak = 0) OR (last_daily_date IS NOT NULL)',
+            name='check_daily_streak_integrity'
+        ),
+        CheckConstraint(
+            '(curr_weekly_streak = 0) OR (last_weekly_date IS NOT NULL)',
+            name='check_weekly_streak_integrity'
+        ),
+    )
 
     def to_dict(self):
         """Helper to convert object to dict for JSON response."""
