@@ -4,12 +4,12 @@ Prediction routes and business logic
 import uuid
 import threading
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.orm import selectinload
 
 from . import model, cache, ai
-from .db import db, Predictions, PredDetails, Advices, References, is_valid_uuid
+from .db import db, Predictions, PredDetails, Advices, References, UserStreaks, is_valid_uuid
 
 bp = Blueprint('predict', __name__, url_prefix='/')
 
@@ -202,6 +202,35 @@ def advice():
             "error": str(e),
             "status": "error"
         }), 400
+    
+@bp.route('/streak/<user_id>', methods=['GET'])
+def get_streak(user_id):
+    """Get current streak status (Daily & Weekly) for a user."""
+    if not is_valid_uuid(user_id):
+        return jsonify({"error": "Invalid User ID format"}), 400
+        
+    try:
+        # Use existing database session
+        streak_record = UserStreaks.query.get(uuid.UUID(user_id))
+        
+        if streak_record:
+            return jsonify({
+                "status": "success",
+                "data": streak_record.to_dict()
+            }), 200
+        else:
+            # If no record exists, return default 0 values (User hasn't started yet)
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "user_id": user_id,
+                    "daily": {"current": 0, "longest": 0, "last_date": None},
+                    "weekly": {"current": 0, "longest": 0, "last_date": None}
+                }
+            }), 200
+            
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 # ===================== #
 #   HELPER FUNCTIONS    #
@@ -339,6 +368,74 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                             detail_id=detail.detail_id,
                             reference_link=str(ref)
                         ))
+
+        # Update user streaks if user_id provided
+        if u_id:
+            try:
+                today = datetime.utcnow().date()
+                streak_record = UserStreaks.query.get(u_id)
+                
+                if not streak_record:
+                    # New User: Start both streaks
+                    new_streak = UserStreaks(
+                        user_id=u_id,
+                        curr_daily_streak=1,
+                        last_daily_date=today,
+                        curr_weekly_streak=1,
+                        last_weekly_date=today,
+                        longest_daily_streak=1,
+                        longest_weekly_streak=1
+                    )
+                    db.session.add(new_streak)
+                
+                else:
+                    # --- DAILY LOGIC ---
+                    last_daily = streak_record.last_daily_date
+
+                    if last_daily == today:
+                        pass # Already checked in today
+                    elif last_daily == today - timedelta(days=1):
+                        streak_record.curr_daily_streak += 1
+                        streak_record.last_daily_date = today
+                        # Update Max
+                        if streak_record.curr_daily_streak > streak_record.longest_daily_streak:
+                            streak_record.longest_daily_streak = streak_record.curr_daily_streak
+                    else:
+                        streak_record.curr_daily_streak = 1 # Reset Daily
+                        streak_record.last_daily_date = today
+
+                    # --- WEEKLY LOGIC ---
+                    last_weekly = streak_record.last_weekly_date
+                    
+                    if last_weekly:
+                        # Calculate the start of the week (Monday) for both dates
+                        # This handles month/year boundaries correctly
+                        start_of_current_week = today - timedelta(days=today.weekday())
+                        start_of_last_checkin = last_weekly - timedelta(days=last_weekly.weekday())
+                        
+                        days_diff = (start_of_current_week - start_of_last_checkin).days
+                        
+                        if days_diff == 0:
+                            # Same week -> Do nothing
+                            pass
+                        elif days_diff == 7:
+                            # Exactly one week later (Consecutive week) -> Streak +1
+                            streak_record.curr_weekly_streak += 1
+                            streak_record.last_weekly_date = today
+                            # Update Max
+                            if streak_record.curr_weekly_streak > streak_record.longest_weekly_streak:
+                                streak_record.longest_weekly_streak = streak_record.curr_weekly_streak
+                        else:
+                            # Gap > 1 week -> Reset Weekly
+                            streak_record.curr_weekly_streak = 1
+                            streak_record.last_weekly_date = today
+                    else:
+                        # Fallback if null
+                        streak_record.curr_weekly_streak = 1
+                        streak_record.last_weekly_date = today
+                        
+            except Exception as e:
+                print(f"⚠️ Error updating streak: {e}")
         
         db.session.commit()
         print(f"💾 Database save completed for {prediction_id}")

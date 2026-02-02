@@ -87,12 +87,10 @@ class UserStreaks(db.Model):
     # Daily check-in streaks
     curr_daily_streak = db.Column(db.Integer, default=0)
     last_daily_date = db.Column(db.Date, nullable=True)
-    longest_daily_streak = db.Column(db.Integer, default=0)
 
     # Weekly check-in streaks
     curr_weekly_streak = db.Column(db.Integer, default=0)
     last_weekly_date = db.Column(db.Date, nullable=True)
-    longest_weekly_streak = db.Column(db.Integer, default=0)
 
     def to_dict(self):
         """Helper to convert object to dict for JSON response."""
@@ -100,12 +98,10 @@ class UserStreaks(db.Model):
             "user_id": str(self.user_id),
             "daily": {
                 "current": self.curr_daily_streak,
-                "longest": self.longest_daily_streak,
                 "last_date": self.last_daily_date.isoformat() if self.last_daily_date else None,
             },
             "weekly": {
                 "current": self.curr_weekly_streak,
-                "longest": self.longest_weekly_streak,
                 "last_date": self.last_weekly_date.isoformat() if self.last_weekly_date else None
             }
         }
