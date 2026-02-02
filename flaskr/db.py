@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import CheckConstraint
 
 db = SQLAlchemy()
 
@@ -25,7 +26,7 @@ def init_app(app):
 
 class Predictions(db.Model):
     """Main predictions table."""
-    __tablename__ = 'PREDICTIONS'
+    __tablename__ = 'predictions'
     
     pred_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = db.Column(UUID(as_uuid=True), nullable=True)
@@ -51,10 +52,10 @@ class Predictions(db.Model):
 
 class PredDetails(db.Model):
     """Prediction details - wellness factors."""
-    __tablename__ = 'PRED_DETAILS'
+    __tablename__ = 'pred_details'
     
     detail_id = db.Column(db.Integer, primary_key=True)
-    pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('PREDICTIONS.pred_id'), nullable=False)
+    pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('predictions.pred_id'), nullable=False)
     factor_name = db.Column(db.Text)
     impact_score = db.Column(db.Float)
     
@@ -64,19 +65,58 @@ class PredDetails(db.Model):
 
 class Advices(db.Model):
     """AI-generated advice for each factor."""
-    __tablename__ = 'ADVICES'
+    __tablename__ = 'advices'
     
     advice_id = db.Column(db.Integer, primary_key=True)
-    detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
+    detail_id = db.Column(db.Integer, db.ForeignKey('pred_details.detail_id'), nullable=False)
     advice_text = db.Column(db.Text)
 
 class References(db.Model):
     """Reference links for each factor."""
-    __tablename__ = 'REFERENCES'
+    __tablename__ = 'references'
     
     ref_id = db.Column(db.Integer, primary_key=True)
-    detail_id = db.Column(db.Integer, db.ForeignKey('PRED_DETAILS.detail_id'), nullable=False)
+    detail_id = db.Column(db.Integer, db.ForeignKey('pred_details.detail_id'), nullable=False)
     reference_link = db.Column(db.String(500))
+
+class UserStreaks(db.Model):
+    """Gamification streak for users."""
+    __tablename__ = 'user_streaks'
+    
+    user_id = db.Column(UUID(as_uuid=True), primary_key=True)
+
+    # Daily check-in streaks
+    curr_daily_streak = db.Column(db.Integer, default=0)
+    last_daily_date = db.Column(db.Date, nullable=True)
+
+    # Weekly check-in streaks
+    curr_weekly_streak = db.Column(db.Integer, default=0)
+    last_weekly_date = db.Column(db.Date, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            '(curr_daily_streak = 0) OR (last_daily_date IS NOT NULL)',
+            name='check_daily_streak_integrity'
+        ),
+        CheckConstraint(
+            '(curr_weekly_streak = 0) OR (last_weekly_date IS NOT NULL)',
+            name='check_weekly_streak_integrity'
+        ),
+    )
+
+    def to_dict(self):
+        """Helper to convert object to dict for JSON response."""
+        return {
+            "user_id": str(self.user_id),
+            "daily": {
+                "current": self.curr_daily_streak,
+                "last_date": self.last_daily_date.isoformat() if self.last_daily_date else None,
+            },
+            "weekly": {
+                "current": self.curr_weekly_streak,
+                "last_date": self.last_weekly_date.isoformat() if self.last_weekly_date else None
+            }
+        }
 
 # ===================== #
 #    HELPER FUNCTIONS   #

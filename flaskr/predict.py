@@ -4,12 +4,12 @@ Prediction routes and business logic
 import uuid
 import threading
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy.orm import selectinload
 
 from . import model, cache, ai
-from .db import db, Predictions, PredDetails, Advices, References, is_valid_uuid
+from .db import db, Predictions, PredDetails, Advices, References, UserStreaks, is_valid_uuid
 
 bp = Blueprint('predict', __name__, url_prefix='/')
 
@@ -202,6 +202,42 @@ def advice():
             "error": str(e),
             "status": "error"
         }), 400
+    
+@bp.route('/streak/<user_id>', methods=['GET'])
+def get_streak(user_id):
+    """Get current streak status (Daily & Weekly) for a user."""
+
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "status": "error",
+            "message": "Database is disabled. Streak data unavailable."
+        }), 503
+
+    if not is_valid_uuid(user_id):
+        return jsonify({"error": "Invalid user_id format. Must be a valid UUID string."}), 400
+        
+    try:
+        # Use existing database session
+        streak_record = UserStreaks.query.get(uuid.UUID(user_id))
+        
+        if streak_record:
+            return jsonify({
+                "status": "success",
+                "data": streak_record.to_dict()
+            }), 200
+        else:
+            # If no record exists, return default 0 values (User hasn't started yet)
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "user_id": user_id,
+                    "daily": {"current": 0, "last_date": None},
+                    "weekly": {"current": 0, "last_date": None}
+                }
+            }), 200
+            
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 # ===================== #
 #   HELPER FUNCTIONS    #
@@ -277,7 +313,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
         })
 
 def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
-    """Save prediction results to PostgreSQL database."""
+    """
+    Save prediction results AND update Daily/Weekly streaks.
+    Returns: True if streak updated successfully (or no user_id), False if streak failed.
+    """
     from flask import current_app
     if current_app.config.get('DB_DISABLED', False):
         print("ℹ️ DB disabled, skipping save_to_db.")
@@ -339,9 +378,89 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                             detail_id=detail.detail_id,
                             reference_link=str(ref)
                         ))
+
+        # Update user streaks if user_id provided
+        streak_success = True
+
+        if u_id:
+            try:
+                client_date_str = json_input.get('local_date')
+
+                if client_date_str:
+                    try:
+                        current_date = datetime.strptime(client_date_str, '%Y-%m-%d').date()
+                    except ValueError:
+                        print("⚠️ Invalid local_date format. Fallback to UTC.")
+                        current_date = datetime.utcnow().date()
+                else:
+                    current_date = datetime.utcnow().date()
+
+                with db.session.begin_nested():
+                    streak_record = db.session.query(UserStreaks).filter(
+                        UserStreaks.user_id == u_id
+                    ).with_for_update().one_or_none()
+                    
+                    if not streak_record:
+                        # New User: Start both streaks
+                        new_streak = UserStreaks(
+                            user_id=u_id,
+                            curr_daily_streak=1,
+                            last_daily_date=current_date,
+                            curr_weekly_streak=1,
+                            last_weekly_date=current_date
+                        )
+                        db.session.add(new_streak)
+                    
+                    else:
+                        # --- DAILY LOGIC ---
+                        last_daily = streak_record.last_daily_date
+
+                        if last_daily is None:
+                            # Fallback if null - start or re-initialize daily streak
+                            streak_record.curr_daily_streak = 1
+                            streak_record.last_daily_date = current_date
+                        else:
+                            if last_daily == current_date:
+                                # Already checked in today
+                                pass
+                            elif last_daily == current_date - timedelta(days=1):
+                                streak_record.curr_daily_streak += 1
+                                streak_record.last_daily_date = current_date
+                            else:
+                                # Missed one or more days -> reset daily streak
+                                streak_record.curr_daily_streak = 1
+                                streak_record.last_daily_date = current_date
+
+                        # --- WEEKLY LOGIC ---
+                        last_weekly = streak_record.last_weekly_date
+                        
+                        if last_weekly:
+                            # Calculate the start of the week (Monday) for both dates
+                            # This handles month/year boundaries correctly
+                            start_of_current_week = current_date - timedelta(days=current_date.weekday())
+                            start_of_last_checkin = last_weekly - timedelta(days=last_weekly.weekday())
+                            
+                            days_diff = (start_of_current_week - start_of_last_checkin).days
+                            
+                            if days_diff == 0:
+                                pass
+                            elif days_diff == 7:
+                                streak_record.curr_weekly_streak += 1
+                                streak_record.last_weekly_date = current_date
+                            else:
+                                streak_record.curr_weekly_streak = 1
+                                streak_record.last_weekly_date = current_date
+                        else:
+                            streak_record.curr_weekly_streak = 1
+                            streak_record.last_weekly_date = current_date
+                        
+            except Exception as e:
+                print(f"⚠️ Warning: Streak update failed, but saving prediction. Error: {e}")
+                streak_success = False
         
         db.session.commit()
         print(f"💾 Database save completed for {prediction_id}")
+        return streak_success
 
 def read_from_db(prediction_id=None, user_id=None):
     """Read prediction data from database."""
