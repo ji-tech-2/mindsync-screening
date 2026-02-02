@@ -402,14 +402,21 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                     # --- DAILY LOGIC ---
                     last_daily = streak_record.last_daily_date
 
-                    if last_daily == today:
-                        pass # Already checked in today
-                    elif last_daily == today - timedelta(days=1):
-                        streak_record.curr_daily_streak += 1
+                    if last_daily is None:
+                        # Fallback if null - start or re-initialize daily streak
+                        streak_record.curr_daily_streak = 1
                         streak_record.last_daily_date = today
                     else:
-                        streak_record.curr_daily_streak = 1 # Reset Daily
-                        streak_record.last_daily_date = today
+                        if last_daily == today:
+                            # Already checked in today
+                            pass
+                        elif last_daily == today - timedelta(days=1):
+                            streak_record.curr_daily_streak += 1
+                            streak_record.last_daily_date = today
+                        else:
+                            # Missed one or more days -> reset daily streak
+                            streak_record.curr_daily_streak = 1
+                            streak_record.last_daily_date = today
 
                     # --- WEEKLY LOGIC ---
                     last_weekly = streak_record.last_weekly_date
