@@ -207,7 +207,7 @@ def advice():
 def get_streak(user_id):
     """Get current streak status (Daily & Weekly) for a user."""
     if not is_valid_uuid(user_id):
-        return jsonify({"error": "Invalid User ID format"}), 400
+        return jsonify({"error": "Invalid user_id format. Must be a valid UUID string."}), 400
         
     try:
         # Use existing database session
