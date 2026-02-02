@@ -429,10 +429,12 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                         streak_record.last_weekly_date = today
                         
             except Exception as e:
-                print(f"⚠️ Error updating streak: {e}")
+                print(f"⚠️ Warning: Streak update failed, but saving prediction. Error: {e}")
+                streak_success = False
         
         db.session.commit()
         print(f"💾 Database save completed for {prediction_id}")
+        return streak_success
 
 def read_from_db(prediction_id=None, user_id=None):
     """Read prediction data from database."""
