@@ -380,70 +380,79 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                         ))
 
         # Update user streaks if user_id provided
+        streak_success = True
+
         if u_id:
             try:
-                today = datetime.utcnow().date()
-                streak_record = db.session.query(UserStreaks).filter(
-                    UserStreaks.user_id == u_id
-                ).with_for_update().one_or_none()
-                
-                if not streak_record:
-                    # New User: Start both streaks
-                    new_streak = UserStreaks(
-                        user_id=u_id,
-                        curr_daily_streak=1,
-                        last_daily_date=today,
-                        curr_weekly_streak=1,
-                        last_weekly_date=today
-                    )
-                    db.session.add(new_streak)
-                
+                client_date_str = json_input.get('local_date')
+
+                if client_date_str:
+                    try:
+                        current_date = datetime.strptime(client_date_str, '%Y-%m-%d').date()
+                    except ValueError:
+                        print("⚠️ Invalid local_date format. Fallback to UTC.")
+                        current_date = datetime.utcnow().date()
                 else:
-                    # --- DAILY LOGIC ---
-                    last_daily = streak_record.last_daily_date
+                    current_date = datetime.utcnow().date()
 
-                    if last_daily is None:
-                        # Fallback if null - start or re-initialize daily streak
-                        streak_record.curr_daily_streak = 1
-                        streak_record.last_daily_date = today
-                    else:
-                        if last_daily == today:
-                            # Already checked in today
-                            pass
-                        elif last_daily == today - timedelta(days=1):
-                            streak_record.curr_daily_streak += 1
-                            streak_record.last_daily_date = today
-                        else:
-                            # Missed one or more days -> reset daily streak
-                            streak_record.curr_daily_streak = 1
-                            streak_record.last_daily_date = today
-
-                    # --- WEEKLY LOGIC ---
-                    last_weekly = streak_record.last_weekly_date
+                with db.session.begin_nested():
+                    streak_record = db.session.query(UserStreaks).filter(
+                        UserStreaks.user_id == u_id
+                    ).with_for_update().one_or_none()
                     
-                    if last_weekly:
-                        # Calculate the start of the week (Monday) for both dates
-                        # This handles month/year boundaries correctly
-                        start_of_current_week = today - timedelta(days=today.weekday())
-                        start_of_last_checkin = last_weekly - timedelta(days=last_weekly.weekday())
-                        
-                        days_diff = (start_of_current_week - start_of_last_checkin).days
-                        
-                        if days_diff == 0:
-                            # Same week -> Do nothing
-                            pass
-                        elif days_diff == 7:
-                            # Exactly one week later (Consecutive week) -> Streak +1
-                            streak_record.curr_weekly_streak += 1
-                            streak_record.last_weekly_date = today
-                        else:
-                            # Gap > 1 week -> Reset Weekly
-                            streak_record.curr_weekly_streak = 1
-                            streak_record.last_weekly_date = today
+                    if not streak_record:
+                        # New User: Start both streaks
+                        new_streak = UserStreaks(
+                            user_id=u_id,
+                            curr_daily_streak=1,
+                            last_daily_date=current_date,
+                            curr_weekly_streak=1,
+                            last_weekly_date=current_date
+                        )
+                        db.session.add(new_streak)
+                    
                     else:
-                        # Fallback if null
-                        streak_record.curr_weekly_streak = 1
-                        streak_record.last_weekly_date = today
+                        # --- DAILY LOGIC ---
+                        last_daily = streak_record.last_daily_date
+
+                        if last_daily is None:
+                            # Fallback if null - start or re-initialize daily streak
+                            streak_record.curr_daily_streak = 1
+                            streak_record.last_daily_date = current_date
+                        else:
+                            if last_daily == current_date:
+                                # Already checked in today
+                                pass
+                            elif last_daily == current_date - timedelta(days=1):
+                                streak_record.curr_daily_streak += 1
+                                streak_record.last_daily_date = current_date
+                            else:
+                                # Missed one or more days -> reset daily streak
+                                streak_record.curr_daily_streak = 1
+                                streak_record.last_daily_date = current_date
+
+                        # --- WEEKLY LOGIC ---
+                        last_weekly = streak_record.last_weekly_date
+                        
+                        if last_weekly:
+                            # Calculate the start of the week (Monday) for both dates
+                            # This handles month/year boundaries correctly
+                            start_of_current_week = current_date - timedelta(days=current_date.weekday())
+                            start_of_last_checkin = last_weekly - timedelta(days=last_weekly.weekday())
+                            
+                            days_diff = (start_of_current_week - start_of_last_checkin).days
+                            
+                            if days_diff == 0:
+                                pass
+                            elif days_diff == 7:
+                                streak_record.curr_weekly_streak += 1
+                                streak_record.last_weekly_date = current_date
+                            else:
+                                streak_record.curr_weekly_streak = 1
+                                streak_record.last_weekly_date = current_date
+                        else:
+                            streak_record.curr_weekly_streak = 1
+                            streak_record.last_weekly_date = current_date
                         
             except Exception as e:
                 print(f"⚠️ Warning: Streak update failed, but saving prediction. Error: {e}")
