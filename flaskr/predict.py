@@ -238,6 +238,85 @@ def get_streak(user_id):
             
     except Exception as e:
         return jsonify({"error": str(e), "status": "error"}), 500
+    
+@bp.route('/history/<user_id>', methods=['GET'])
+def get_history(user_id):
+    """
+    Get full history of predictions for a user (Including Advice).
+    Returns list of results formatted exactly like /result endpoint.
+    """
+    
+    # 1. Check DB Status
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "status": "error", 
+            "message": "Database is disabled. History unavailable."
+        }), 503
+
+    # 2. Validate UUID
+    if not is_valid_uuid(user_id):
+        return jsonify({"error": "Invalid User ID format"}), 400
+        
+    try:
+        # 3. Retrieve raw data (includes advice) from helper function
+        db_result = read_from_db(user_id=user_id)
+        
+        if db_result.get("status") == "success":
+            raw_list = db_result["data"]
+            formatted_history = []
+            
+            # 4. Re-format each item to match /result schema (Nested JSON)
+            for item in raw_list:
+                wellness_analysis = {
+                    "areas_for_improvement": [],
+                    "strengths": []
+                }
+                ai_advice_dict = {}
+                
+                for detail in item.get("details", []):
+                    wellness_analysis["areas_for_improvement"].append({
+                        "feature": detail["factor_name"],
+                        "impact_score": detail["impact_score"]
+                    })
+                    ai_advice_dict[detail["factor_name"]] = {
+                        "advices": detail["advices"],
+                        "references": detail["references"]
+                    }
+                
+                formatted_item = {
+                    "prediction_id": item["prediction_id"],
+                    "prediction_score": item["prediction_score"],
+                    "health_level": model.categorize_mental_health_score(item["prediction_score"]),
+                    "created_at": item["prediction_date"],
+                    # FULL DETAILS INCLUDED HERE:
+                    "wellness_analysis": wellness_analysis,
+                    "advice": {
+                        "description": "Historical result retrieved from database.",
+                        "factors": ai_advice_dict
+                    }
+                }
+                formatted_history.append(formatted_item)
+            
+            return jsonify({
+                "status": "success",
+                "count": len(formatted_history),
+                "data": formatted_history
+            }), 200
+        
+        elif db_result.get("status") == "not_found":
+             # User has no history yet, return empty list (not error)
+             return jsonify({
+                "status": "success",
+                "count": 0,
+                "data": []
+            }), 200
+            
+        else:
+            return jsonify(db_result), 400
+            
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 # ===================== #
 #   HELPER FUNCTIONS    #
