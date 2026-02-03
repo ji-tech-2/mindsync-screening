@@ -136,14 +136,21 @@ def get_result(prediction_id):
         ai_advice_dict = {}
         
         for detail in data.get("details", []):
-            wellness_analysis["areas_for_improvement"].append({
-                "feature": detail["factor_name"],
-                "impact_score": detail["impact_score"]
-            })
-            ai_advice_dict[detail["factor_name"]] = {
-                "advices": detail["advices"],
-                "references": detail["references"]
-            }
+            factor_type = detail.get("factor_type", "improvement")
+            if factor_type == "strength":
+                wellness_analysis["strengths"].append({
+                    "feature": detail["factor_name"],
+                    "impact_score": detail["impact_score"]
+                })
+            else:
+                wellness_analysis["areas_for_improvement"].append({
+                    "feature": detail["factor_name"],
+                    "impact_score": detail["impact_score"]
+                })
+                ai_advice_dict[detail["factor_name"]] = {
+                    "advices": detail["advices"],
+                    "references": detail["references"]
+                }
         
         return jsonify({
             "status": "ready",
@@ -274,14 +281,21 @@ def get_history(user_id):
                 ai_advice_dict = {}
                 
                 for detail in item.get("details", []):
-                    wellness_analysis["areas_for_improvement"].append({
-                        "feature": detail["factor_name"],
-                        "impact_score": detail["impact_score"]
-                    })
-                    ai_advice_dict[detail["factor_name"]] = {
-                        "advices": detail["advices"],
-                        "references": detail["references"]
-                    }
+                    factor_type = detail.get("factor_type", "improvement")
+                    if factor_type == "strength":
+                        wellness_analysis["strengths"].append({
+                            "feature": detail["factor_name"],
+                            "impact_score": detail["impact_score"]
+                        })
+                    else:
+                        wellness_analysis["areas_for_improvement"].append({
+                            "feature": detail["factor_name"],
+                            "impact_score": detail["impact_score"]
+                        })
+                        ai_advice_dict[detail["factor_name"]] = {
+                            "advices": detail["advices"],
+                            "references": detail["references"]
+                        }
                 
                 formatted_item = {
                     "prediction_id": item["prediction_id"],
@@ -425,13 +439,15 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
         
         # Save details
         if wellness_analysis:
+            # Areas for improvement
             for item in wellness_analysis.get('areas_for_improvement', []):
                 fname = item['feature']
                 
                 detail = PredDetails(
                     pred_id=new_pred.pred_id,
                     factor_name=fname,
-                    impact_score=float(item['impact_score'])
+                    impact_score=float(item['impact_score']),
+                    factor_type='improvement'
                 )
                 db.session.add(detail)
                 db.session.flush()
@@ -457,6 +473,19 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                             detail_id=detail.detail_id,
                             reference_link=str(ref)
                         ))
+
+            # Strengths
+            for item in wellness_analysis.get('strengths', []):
+                fname = item['feature']
+                
+                detail = PredDetails(
+                    pred_id=new_pred.pred_id,
+                    factor_name=fname,
+                    impact_score=float(item['impact_score']),
+                    factor_type='strength'
+                )
+                db.session.add(detail)
+                db.session.flush()
 
         # Update user streaks if user_id provided
         streak_success = True
@@ -613,6 +642,7 @@ def read_from_db(prediction_id=None, user_id=None):
                 detail_data = {
                     "factor_name": detail.factor_name,
                     "impact_score": detail.impact_score,
+                    "factor_type": detail.factor_type if hasattr(detail, 'factor_type') else 'improvement',
                     "advices": [a.advice_text for a in detail.advices],
                     "references": [r.reference_link for r in detail.references]
                 }
