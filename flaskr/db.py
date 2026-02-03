@@ -46,6 +46,9 @@ class Predictions(db.Model):
     
     # Output Data
     pred_score = db.Column(db.Float)
+
+    # AI Generated Summary
+    ai_desc = db.Column(db.Text, nullable=True)
     
     # Relationships
     details = db.relationship('PredDetails', backref='prediction', lazy=True, cascade="all, delete-orphan")
