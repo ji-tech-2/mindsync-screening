@@ -58,6 +58,7 @@ class PredDetails(db.Model):
     pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('predictions.pred_id'), nullable=False)
     factor_name = db.Column(db.Text)
     impact_score = db.Column(db.Float)
+    factor_type = db.Column(db.String(20), default='improvement')  # 'improvement' or 'strength'
     
     # Relationships
     advices = db.relationship('Advices', backref='detail', lazy=True, cascade="all, delete-orphan")
