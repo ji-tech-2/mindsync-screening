@@ -336,6 +336,35 @@ def get_history(user_id):
 #   HELPER FUNCTIONS    #
 # ===================== #
 
+def format_db_output(data):
+    """Helper to transform DB flat data to nested JSON structure."""
+    wellness_analysis = {"areas_for_improvement": [], "strengths": []}
+    ai_advice_dict = {}
+    
+    for detail in data.get("details", []):
+        entry = {"feature": detail["factor_name"], "impact_score": detail["impact_score"]}
+        
+        if detail.get("factor_type") == "strength":
+            wellness_analysis["strengths"].append(entry)
+        else:
+            wellness_analysis["areas_for_improvement"].append(entry)
+            if detail["advices"]:
+                ai_advice_dict[detail["factor_name"]] = {
+                    "advices": detail["advices"],
+                    "references": detail["references"]
+                }
+    
+    return {
+        "prediction_score": data["prediction_score"],
+        "health_level": model.categorize_mental_health_score(data["prediction_score"]),
+        "wellness_analysis": wellness_analysis,
+        "advice": {
+            # --- DISINI PERUBAHANNYA: Ambil deskripsi asli ---
+            "description": data.get("ai_description") or "Description not available.",
+            "factors": ai_advice_dict
+        }
+    }
+
 def process_prediction(prediction_id, json_input, created_at, app):
     """Background task for processing prediction."""
     try:
