@@ -24,6 +24,7 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+tests/
 
 # --- 5. Data Science Junk (NEW) ---
 # You don't want these in production:
