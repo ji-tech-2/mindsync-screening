@@ -63,6 +63,7 @@ class PredDetails(db.Model):
     impact_score = db.Column(db.Float)
     factor_type = db.Column(db.String(20), 
                     default='improvement',
+                    server_default='improvement',
                     comment="'improvement' or 'strengths' - used to separate areas_for_improvement vs strengths"
                 )
     
