@@ -829,7 +829,7 @@ def read_from_db(prediction_id=None, user_id=None):
                 detail_data = {
                     "factor_name": detail.factor_name,
                     "impact_score": detail.impact_score,
-                    "factor_type": detail.factor_type if hasattr(detail, 'factor_type') else 'improvement',
+                    "factor_type": detail.factor_type if detail.factor_type is not None else 'improvement',
                     "advices": [a.advice_text for a in detail.advices],
                     "references": [r.reference_link for r in detail.references]
                 }
