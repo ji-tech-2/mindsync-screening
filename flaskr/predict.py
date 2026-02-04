@@ -654,24 +654,16 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                 db.session.add(detail)
                 db.session.flush()
                 
-                factor_data = {}
-                if isinstance(ai_advice, dict):
-                    factors_map = ai_advice.get('factors', {})
-                    if fname in factors_map:
-                        factor_data = factors_map[fname]
-                    else:
-                        print(f"⚠️ Warning: No AI advice generated for factor '{fname}'")
+                if category_label == FACTOR_TYPE_IMPROVEMENT:
+                    factor_data = {}
+                    if isinstance(ai_advice, dict):
+                        factors_map = ai_advice.get('factors', {})
+                        if fname in factors_map: factor_data = factors_map[fname]
 
-                for tip in factor_data.get('advices', []):
-                    if tip:
-                        db.session.add(Advices(detail_id=detail.detail_id, advice_text=str(tip)))
-                    else:
-                        print(f"⚠️ Warning: Empty advice for factor '{fname}'")
-                for ref in factor_data.get('references', []):
-                    if ref:
-                        db.session.add(References(detail_id=detail.detail_id, reference_link=str(ref)))
-                    else:
-                        print(f"⚠️ Warning: Empty reference for factor '{fname}'")
+                    for tip in factor_data.get('advices', []):
+                        if tip: db.session.add(Advices(detail_id=detail.detail_id, advice_text=str(tip)))
+                    for ref in factor_data.get('references', []):
+                        if ref: db.session.add(References(detail_id=detail.detail_id, reference_link=str(ref)))
 
         save_detail_list(wellness_analysis.get('areas_for_improvement', []), FACTOR_TYPE_IMPROVEMENT)
         save_detail_list(wellness_analysis.get('strengths', []), FACTOR_TYPE_STRENGTH)
