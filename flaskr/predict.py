@@ -611,7 +611,6 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
     Save prediction results AND update Daily/Weekly streaks.
     Returns: True if streak updated successfully (or no user_id), False if streak failed.
     """
-    from flask import current_app
     if current_app.config.get('DB_DISABLED', False):
         print("ℹ️ DB disabled, skipping save_to_db.")
         return
@@ -657,6 +656,8 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                 db.session.add(detail)
                 db.session.flush()
                 
+                # The AI advice generation (get_ai_advice) strictly targets 'areas_for_improvement'.
+                # Strengths are positive attributes, so no advice or references are generated or stored for them.
                 if category_label == FACTOR_TYPE_IMPROVEMENT:
                     factor_data = {}
                     if isinstance(ai_advice, dict):
