@@ -163,6 +163,42 @@ Response: 200 OK
 }
 ```
 
+### Get User History
+```
+GET /history/<user_id>
+
+Response: 200 OK
+{
+  "count": 5,
+  "data": [
+    {
+      "advice": {
+        "description": "Great job maintaining good sleep habits...",
+        "factors": {
+           "Screen Time": {
+              "advices": ["Try the 20-20-20 rule..."],
+              "references": ["https://..."]
+           }
+        }
+      }
+      "created_at": "2026-02-04T10:00:00",
+      "health_level": "healthy",
+      "prediction_id": "uuid-1...",
+      "prediction_score": 35.5,
+      "wellness_analysis": {
+        "areas_for_improvement": [
+           {"feature": "Screen Time", "impact_score": 5.2}
+        ]
+        "strengths": [
+           {"feature": "Sleep Quality", "impact_score": -10.5}
+        ],
+      },
+    },
+  ],
+  "status": "success"
+}
+```
+
 
 ## 🏗️ Architecture
 
