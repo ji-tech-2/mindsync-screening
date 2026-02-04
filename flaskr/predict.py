@@ -254,8 +254,8 @@ def get_history(user_id):
             }), 200
         
         elif db_result.get("status") == "not_found":
-             # User has no history yet, return empty list (not error)
-             return jsonify({
+            # User has no history yet, return empty list (not error)
+            return jsonify({
                 "status": "success",
                 "count": 0,
                 "data": []
@@ -520,11 +520,14 @@ def format_db_output(data):
     for detail in data.get("details", []):
         entry = {"feature": detail["factor_name"], "impact_score": detail["impact_score"]}
         
-        if detail.get("factor_type") == FACTOR_TYPE_STRENGTH:
+        # Check factor_type safely
+        f_type = detail.get("factor_type", FACTOR_TYPE_IMPROVEMENT)
+        
+        if f_type == FACTOR_TYPE_STRENGTH:
             wellness_analysis["strengths"].append(entry)
         else:
             wellness_analysis["areas_for_improvement"].append(entry)
-            if detail["advices"]:
+            if detail.get("advices"):
                 ai_advice_dict[detail["factor_name"]] = {
                     "advices": detail["advices"],
                     "references": detail["references"]
