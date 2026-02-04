@@ -29,7 +29,7 @@ class Predictions(db.Model):
     __tablename__ = 'predictions'
     
     pred_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = db.Column(UUID(as_uuid=True), nullable=True)
+    user_id = db.Column(UUID(as_uuid=True), nullable=True, index=True) 
     guest_id = db.Column(UUID(as_uuid=True), nullable=True)
     pred_date = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -46,6 +46,9 @@ class Predictions(db.Model):
     
     # Output Data
     pred_score = db.Column(db.Float)
+
+    # AI Generated Summary
+    ai_desc = db.Column(db.Text, nullable=True)
     
     # Relationships
     details = db.relationship('PredDetails', backref='prediction', lazy=True, cascade="all, delete-orphan")
@@ -58,6 +61,11 @@ class PredDetails(db.Model):
     pred_id = db.Column(UUID(as_uuid=True), db.ForeignKey('predictions.pred_id'), nullable=False)
     factor_name = db.Column(db.Text)
     impact_score = db.Column(db.Float)
+    factor_type = db.Column(db.String(20), 
+                    default='improvement',
+                    server_default='improvement',
+                    comment="'improvement' or 'strengths' - used to separate areas_for_improvement vs strengths"
+                )
     
     # Relationships
     advices = db.relationship('Advices', backref='detail', lazy=True, cascade="all, delete-orphan")
@@ -92,6 +100,9 @@ class UserStreaks(db.Model):
     # Weekly check-in streaks
     curr_weekly_streak = db.Column(db.Integer, default=0)
     last_weekly_date = db.Column(db.Date, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
         CheckConstraint(

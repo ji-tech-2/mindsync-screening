@@ -12,6 +12,10 @@ from sqlalchemy import func
 from . import model, cache, ai
 from .db import db, Predictions, PredDetails, Advices, References, UserStreaks, is_valid_uuid
 
+# Constants
+FACTOR_TYPE_IMPROVEMENT = 'improvement'
+FACTOR_TYPE_STRENGTH = 'strengths'
+
 bp = Blueprint('predict', __name__, url_prefix='/')
 
 # ===================== #
@@ -118,7 +122,6 @@ def get_result(prediction_id):
             }), 500
     
     # Fallback to database if enabled
-    from flask import current_app
     if current_app.config.get('DB_DISABLED', False):
         return jsonify({
             "status": "not_found",
@@ -129,43 +132,15 @@ def get_result(prediction_id):
 
     if db_result.get("status") == "success":
         data = db_result["data"]
-        
-        wellness_analysis = {
-            "areas_for_improvement": [],
-            "strengths": []
-        }
-        ai_advice_dict = {}
-        
-        for detail in data.get("details", []):
-            wellness_analysis["areas_for_improvement"].append({
-                "feature": detail["factor_name"],
-                "impact_score": detail["impact_score"]
-            })
-            ai_advice_dict[detail["factor_name"]] = {
-                "advices": detail["advices"],
-                "references": detail["references"]
-            }
-        
         return jsonify({
             "status": "ready",
             "source": "database",
             "created_at": data["prediction_date"],
             "completed_at": data["prediction_date"],
-            "result": {
-                "prediction_score": data["prediction_score"],
-                "health_level": model.categorize_mental_health_score(data["prediction_score"]),
-                "wellness_analysis": wellness_analysis,
-                "advice": {
-                    "description": "Historical result retrieved from database.",
-                    "factors": ai_advice_dict
-                }
-            }
+            "result": format_db_output(data)
         }), 200
     
-    return jsonify({
-        "status": "not_found",
-        "message": "Prediction ID not found"
-    }), 404
+    return jsonify(db_result), 404
 
 @bp.route('/advice', methods=['POST'])
 def advice():
@@ -238,6 +213,59 @@ def get_streak(user_id):
             }), 200
             
     except Exception as e:
+        return jsonify({"error": str(e), "status": "error"}), 500
+    
+@bp.route('/history/<user_id>', methods=['GET'])
+def get_history(user_id):
+    """ Get full history of predictions for a user."""
+    
+    # Check DB Status
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "status": "error", 
+            "message": "Database is disabled. History unavailable."
+        }), 503
+
+    # Validate UUID
+    if not is_valid_uuid(user_id):
+        return jsonify({"error": "Invalid User ID format"}), 400
+        
+    try:
+        db_result = read_from_db(user_id=user_id)
+        if db_result.get("status") == "success":
+            # Format list of results
+            formatted_history = []
+            for item in db_result["data"]:
+                formatted_data = format_db_output(item)
+                formatted_item = {
+                    "prediction_id": item["prediction_id"],
+                    "prediction_score": item["prediction_score"],
+                    "health_level": model.categorize_mental_health_score(item["prediction_score"]),
+                    "created_at": item["prediction_date"],
+                    "wellness_analysis": formatted_data["wellness_analysis"],
+                    "advice": formatted_data["advice"]
+                }
+                formatted_history.append(formatted_item)
+            
+            return jsonify({
+                "status": "success",
+                "count": len(formatted_history),
+                "data": formatted_history
+            }), 200
+        
+        elif db_result.get("status") == "not_found":
+            # User has no history yet, return empty list (not error)
+            return jsonify({
+                "status": "success",
+                "count": 0,
+                "data": []
+            }), 200
+            
+        else:
+            return jsonify(db_result), 400
+            
+    except Exception as e:
+        print(f"Error fetching history: {e}")
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
@@ -481,6 +509,40 @@ def get_daily_suggestion():
 #   HELPER FUNCTIONS    #
 # ===================== #
 
+def format_db_output(data):
+    """Helper to transform DB flat data to nested JSON structure."""
+    wellness_analysis = {
+        "areas_for_improvement": [],
+        "strengths": []
+    }
+    ai_advice_dict = {}
+    
+    for detail in data.get("details", []):
+        entry = {"feature": detail["factor_name"], "impact_score": detail["impact_score"]}
+        
+        # Check factor_type safely
+        f_type = detail.get("factor_type", FACTOR_TYPE_IMPROVEMENT)
+        
+        if f_type == FACTOR_TYPE_STRENGTH:
+            wellness_analysis["strengths"].append(entry)
+        else:
+            wellness_analysis["areas_for_improvement"].append(entry)
+            if detail.get("advices"):
+                ai_advice_dict[detail["factor_name"]] = {
+                    "advices": detail["advices"],
+                    "references": detail["references"]
+                }
+    
+    return {
+        "prediction_score": data["prediction_score"],
+        "health_level": model.categorize_mental_health_score(data["prediction_score"]),
+        "wellness_analysis": wellness_analysis,
+        "advice": {
+            "description": data.get("ai_desc") or "Description not available.",
+            "factors": ai_advice_dict
+        }
+    }
+
 def process_prediction(prediction_id, json_input, created_at, app):
     """Background task for processing prediction."""
     try:
@@ -496,6 +558,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
             prediction_score = float(prediction[0])
             
             wellness_analysis = model.analyze_wellness_factors(df)
+            if not wellness_analysis:
+                print(f"❌ Wellness analysis failed for {prediction_id}. Using fallback.")
+                wellness_analysis = {"areas_for_improvement": [], "strengths": []}
+            
             mental_health_category = model.categorize_mental_health_score(prediction_score)
             
             # Store partial result
@@ -512,10 +578,19 @@ def process_prediction(prediction_id, json_input, created_at, app):
             print(f"📊 Partial result ready for {prediction_id}")
             
             # Slow part: Gemini AI
-            from flask import current_app
             api_key = current_app.config.get('GEMINI_API_KEY')
             ai_advice = ai.get_ai_advice(prediction_score, mental_health_category, wellness_analysis, api_key)
             
+            if not ai_advice or not isinstance(ai_advice, dict):
+                print(f"⚠️ AI advice generation failed for {prediction_id}. Using fallback.")
+                ai_advice = {"factors": {}, "description": "AI advice could not be generated at this time."}
+            
+            if not current_app.config.get('DB_DISABLED', False):
+                try:
+                    save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
+                except Exception as db_error:
+                    print(f"⚠️ Failed to save to database: {db_error}")
+
             # Update with full result
             cache.update_prediction(prediction_id, {
                 "status": "ready",
@@ -527,35 +602,15 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 },
                 "completed_at": datetime.now().isoformat()
             })
-            print(f"✅ Full result ready for {prediction_id}")
-            
-            # Save to database if enabled
-            from flask import current_app
-            if not current_app.config.get('DB_DISABLED', False):
-                try:
-                    save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, ai_advice)
-                except Exception as db_error:
-                    print(f"⚠️ Failed to save to database: {db_error}")
-                    cache.update_prediction(prediction_id, {
-                        "status": "ready",
-                        "db_save_status": "error",
-                        "db_error": str(db_error)
-                    })
     
     except Exception as e:
-        print(f"❌ Error processing {prediction_id}: {e}")
-        cache.update_prediction(prediction_id, {
-            "status": "error",
-            "error": str(e),
-            "completed_at": datetime.now().isoformat()
-        })
+        cache.update_prediction(prediction_id, {"status": "error", "error": str(e)})
 
 def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, ai_advice):
     """
     Save prediction results AND update Daily/Weekly streaks.
     Returns: True if streak updated successfully (or no user_id), False if streak failed.
     """
-    from flask import current_app
     if current_app.config.get('DB_DISABLED', False):
         print("ℹ️ DB disabled, skipping save_to_db.")
         return
@@ -563,6 +618,10 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
     with current_app.app_context():
         print(f"🔄 [DB] Saving data for ID: {prediction_id}...")
         
+        ai_desc_text = None
+        if isinstance(ai_advice, dict):
+            ai_desc_text = ai_advice.get('description')
+
         u_id = uuid.UUID(json_input.get('user_id')) if json_input.get('user_id') else None
         
         new_pred = Predictions(
@@ -577,49 +636,43 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
             social=float(json_input.get('social_hours_per_week', 0)),
             sleep_quality=int(json_input.get('sleep_quality_1_5', 0)),
             exercise=int(json_input.get('exercise_minutes_per_week', 0)),
-            pred_score=prediction_score
+            pred_score=prediction_score,
+            ai_desc=ai_desc_text
         )
         db.session.add(new_pred)
         db.session.flush()
         
         # Save details
-        if wellness_analysis:
-            for item in wellness_analysis.get('areas_for_improvement', []):
+        def save_detail_list(items, category_label):
+            if not items: return
+            for item in items:
                 fname = item['feature']
-                
                 detail = PredDetails(
                     pred_id=new_pred.pred_id,
                     factor_name=fname,
+                    factor_type=category_label,
                     impact_score=float(item['impact_score'])
                 )
                 db.session.add(detail)
                 db.session.flush()
                 
-                # Get AI advice for this factor
-                if isinstance(ai_advice, dict):
-                    factor_data = ai_advice.get('factors', {}).get(fname, {})
-                else:
+                # The AI advice generation (get_ai_advice) strictly targets 'areas_for_improvement'.
+                # Strengths are positive attributes, so no advice or references are generated or stored for them.
+                if category_label == FACTOR_TYPE_IMPROVEMENT:
                     factor_data = {}
-                
-                # Save advices
-                for tip in factor_data.get('advices', []):
-                    if tip:
-                        db.session.add(Advices(
-                            detail_id=detail.detail_id,
-                            advice_text=str(tip)
-                        ))
-                
-                # Save references
-                for ref in factor_data.get('references', []):
-                    if ref:
-                        db.session.add(References(
-                            detail_id=detail.detail_id,
-                            reference_link=str(ref)
-                        ))
+                    if isinstance(ai_advice, dict):
+                        factors_map = ai_advice.get('factors', {})
+                        if fname in factors_map: factor_data = factors_map[fname]
+
+                    for tip in factor_data.get('advices', []):
+                        if tip: db.session.add(Advices(detail_id=detail.detail_id, advice_text=str(tip)))
+                    for ref in factor_data.get('references', []):
+                        if ref: db.session.add(References(detail_id=detail.detail_id, reference_link=str(ref)))
+
+        save_detail_list(wellness_analysis.get('areas_for_improvement', []), FACTOR_TYPE_IMPROVEMENT)
+        save_detail_list(wellness_analysis.get('strengths', []), FACTOR_TYPE_STRENGTH)
 
         # Update user streaks if user_id provided
-        streak_success = True
-
         if u_id:
             try:
                 client_date_str = json_input.get('local_date')
@@ -693,12 +746,11 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                             streak_record.last_weekly_date = current_date
                         
             except Exception as e:
-                print(f"⚠️ Warning: Streak update failed, but saving prediction. Error: {e}")
-                streak_success = False
+                print(f"⚠️ Streak update failed: {e}")
+                print(f"   Details: Prediction still saved to database, only streak tracking failed.")
         
         db.session.commit()
         print(f"💾 Database save completed for {prediction_id}")
-        return streak_success
 
 def read_from_db(prediction_id=None, user_id=None):
     """Read prediction data from database."""
@@ -765,6 +817,7 @@ def read_from_db(prediction_id=None, user_id=None):
                     "social_hours_per_week": pred.social
                 },
                 "prediction_score": pred.pred_score,
+                "ai_desc": pred.ai_desc,
                 "details": []
             }
             
@@ -772,11 +825,11 @@ def read_from_db(prediction_id=None, user_id=None):
                 detail_data = {
                     "factor_name": detail.factor_name,
                     "impact_score": detail.impact_score,
+                    "factor_type": detail.factor_type if detail.factor_type is not None else 'improvement',
                     "advices": [a.advice_text for a in detail.advices],
                     "references": [r.reference_link for r in detail.references]
                 }
                 pred_data["details"].append(detail_data)
-            
             result.append(pred_data)
         
         if prediction_id:
