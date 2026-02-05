@@ -581,14 +581,14 @@ def get_weekly_chart():
             if day_str in data_map:
                 row = data_map[day_str]
                 daily_stats.update({
-                    "mental_health_index": round(float(row.mental_health_index), 1),
-                    "sleep_duration": round(float(row.sleep_duration), 1),
-                    "sleep_quality": round(float(row.sleep_quality), 1), 
-                    "stress_level": round(float(row.stress_level), 1),
-                    "screen_time": round(float(row.screen_time), 1),
-                    "productivity": round(float(row.productivity), 1),
-                    "social_activity": round(float(row.social_activity), 1),
-                    "exercise_duration": round(float(row.exercise_duration), 1), 
+                    "mental_health_index": round(float(row.mental_health_index or 0), 1),
+                    "sleep_duration": round(float(row.sleep_duration or 0), 1),
+                    "sleep_quality": round(float(row.sleep_quality or 0), 1), 
+                    "stress_level": round(float(row.stress_level or 0), 1),
+                    "screen_time": round(float(row.screen_time or 0), 1),
+                    "productivity": round(float(row.productivity or 0), 1),
+                    "social_activity": round(float(row.social_activity or 0), 1),
+                    "exercise_duration": round(float(row.exercise_duration or 0), 1), 
                     "has_data": True
                 })
             
