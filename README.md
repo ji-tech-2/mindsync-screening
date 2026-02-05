@@ -199,6 +199,43 @@ Response: 200 OK
 }
 ```
 
+### Get Weekly Chart
+```
+GET /chart/weekly?user_id=<user_id>
+
+Response: 200 OK
+{
+  "data": [
+    {
+      "date": "2026-02-04",
+      "exercise_duration": 0.0,
+      "has_data": true,
+      "label": "Wed",
+      "mental_health_index": 45.0,
+      "productivity": 40.0,
+      "screen_time": 12.0,
+      "sleep_duration": 4.5,
+      "sleep_quality": 2.0,
+      "social_activity": 1.0,
+      "stress_level": 8.0
+    },
+    {
+      "date": "2026-02-05",
+      "exercise_duration": 60.0,
+      "has_data": true,
+      "label": "Thu",
+      "mental_health_index": 92.5,
+      "productivity": 95.0,
+      "screen_time": 4.0,
+      "sleep_duration": 8.0,
+      "sleep_quality": 5.0,
+      "social_activity": 5.0,
+      "stress_level": 1.5
+    }
+  ],
+  "status": "success"
+}
+```
 
 ## 🏗️ Architecture
 
