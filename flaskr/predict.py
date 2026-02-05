@@ -528,6 +528,7 @@ def get_weekly_chart():
     try:
         # Define Date Range (Last 7 Days including today)
         today = datetime.utcnow().date()
+        end_date = datetime.combine(today, datetime.max.time())
         start_date = today - timedelta(days=6)
         
         # Query Data (Group by Date to handle multiple check-ins per day)
@@ -544,7 +545,8 @@ def get_weekly_chart():
             func.avg(Predictions.exercise).label('exercise_duration')
         ).filter(
             Predictions.user_id == uuid.UUID(user_id),
-            Predictions.pred_date >= start_date
+            Predictions.pred_date >= start_date,
+            Predictions.pred_date <= end_date
         ).group_by(
             func.date(Predictions.pred_date)
         ).all()
