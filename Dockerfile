@@ -1,5 +1,5 @@
 # 1. Base Image
-FROM python:3.11.9-slim
+FROM python:3.11.9-slim AS base
 
 # 2. Optimization
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -21,6 +21,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY artifacts/ ./artifacts/
 COPY wsgi.py .
 COPY flaskr/ ./flaskr/
+
+# Test Stage
+FROM base AS test
+COPY tests/ ./tests/
+# TODO: Add and run tests
+
+# Final Stage
+FROM base
 
 # 6. Security: Run as non-root user
 RUN useradd -m modeluser
