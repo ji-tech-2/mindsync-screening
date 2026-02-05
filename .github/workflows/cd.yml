@@ -1,0 +1,53 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["Artifact"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/mindsync-model-flask
+  CONTAINER_NAME: mindsync-model-api
+  APP_PORT: 5000
+  HOST_PORT: 80
+
+jobs:
+  deploy:
+    name: Deploy to Droplet
+    runs-on: ubuntu-latest
+    # Only deploy if the artifact build was successful
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_IP }}
+          username: root
+          password: ${{ secrets.DROPLET_PASSWORD }}
+          script: |
+            # Login to Docker Hub inside the droplet
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+            # Stop and remove existing container
+            docker stop ${{ env.CONTAINER_NAME }} || true
+            docker rm ${{ env.CONTAINER_NAME }} || true
+
+            # Pull latest image
+            docker pull ${{ env.IMAGE_NAME }}:latest
+
+            # Run new container
+            docker run -d \
+              --name ${{ env.CONTAINER_NAME }} \
+              --restart unless-stopped \
+              -p ${{ env.HOST_PORT }}:${{ env.APP_PORT }} \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+              -e VALKEY_URL="${{ secrets.VALKEY_URL }}" \
+              ${{ env.IMAGE_NAME }}:latest
+
+            # Clean up unused images
+            docker image prune -f
