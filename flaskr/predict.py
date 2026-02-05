@@ -510,12 +510,20 @@ def get_weekly_chart():
     
     # Check DB
     if current_app.config.get('DB_DISABLED', False):
-        return jsonify({"error": "Database disabled", "status": "unavailable"}), 503
+        return jsonify({
+            "error": "Database is disabled",
+            "message": "This endpoint requires database access.",
+            "status": "unavailable"
+        }), 503
 
     # Validate User
     user_id = request.args.get('user_id')
     if not user_id or not is_valid_uuid(user_id):
-        return jsonify({"error": "Invalid or missing user_id"}), 400
+        return jsonify({
+            "error": "Invalid or missing user_id",
+            "message": "user_id query parameter is required and must be a valid UUID.",
+            "status": "bad_request"
+        }), 400
 
     try:
         # Define Date Range (Last 7 Days including today)
