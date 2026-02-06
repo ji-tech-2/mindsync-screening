@@ -504,6 +504,104 @@ def get_daily_suggestion():
             "status": "error"
         }), 500
 
+@bp.route('/chart/weekly', methods=['GET'])
+def get_weekly_chart():
+    """ Get aggregated data for the last 7 days for visualization and returns averages for all metrics. """
+    
+    # Check DB
+    if current_app.config.get('DB_DISABLED', False):
+        return jsonify({
+            "error": "Database is disabled",
+            "message": "This endpoint requires database access.",
+            "status": "unavailable"
+        }), 503
+
+    # Validate User
+    user_id = request.args.get('user_id')
+    if not user_id or not is_valid_uuid(user_id):
+        return jsonify({
+            "error": "Invalid or missing user_id",
+            "message": "user_id query parameter is required and must be a valid UUID.",
+            "status": "bad_request"
+        }), 400
+
+    try:
+        # Define Date Range (Last 7 Days including today)
+        today = datetime.utcnow().date()
+        end_date = datetime.combine(today, datetime.max.time())
+        start_date = today - timedelta(days=6)
+        
+        # Query Data (Group by Date to handle multiple check-ins per day)
+        # We take the AVERAGE if a user checks in multiple times a day
+        query = db.session.query(
+            func.date(Predictions.pred_date).label('date'),
+            func.avg(Predictions.pred_score).label('mental_health_index'),
+            func.avg(Predictions.sleep_hours).label('sleep_duration'),
+            func.avg(Predictions.sleep_quality).label('sleep_quality'),
+            func.avg(Predictions.stress_level).label('stress_level'),
+            func.avg(Predictions.screen_time).label('screen_time'),
+            func.avg(Predictions.productivity).label('productivity'),
+            func.avg(Predictions.social).label('social_activity'),
+            func.avg(Predictions.exercise).label('exercise_duration')
+        ).filter(
+            Predictions.user_id == uuid.UUID(user_id),
+            Predictions.pred_date >= start_date,
+            Predictions.pred_date <= end_date
+        ).group_by(
+            func.date(Predictions.pred_date)
+        ).all()
+
+        # Transform Data to Dictionary for easy lookup
+        data_map = {str(row.date): row for row in query}
+
+        # Build 7-Day Series (Fill gaps with 0)
+        chart_data = []
+        
+        for i in range(7):
+            current_day = start_date + timedelta(days=i)
+            day_str = str(current_day)
+            day_label = current_day.strftime('%a')
+            
+            # Default values if no data exists for this day
+            daily_stats = {
+                "date": day_str,
+                "label": day_label,
+                "mental_health_index": 0,
+                "sleep_duration": 0,
+                "sleep_quality": 0,
+                "stress_level": 0,
+                "screen_time": 0,
+                "productivity": 0,
+                "social_activity": 0,
+                "exercise_duration": 0,
+                "has_data": False
+            }
+
+            # If data exists, overwrite defaults
+            if day_str in data_map:
+                row = data_map[day_str]
+                daily_stats.update({
+                    "mental_health_index": round(float(row.mental_health_index or 0), 1),
+                    "sleep_duration": round(float(row.sleep_duration or 0), 1),
+                    "sleep_quality": round(float(row.sleep_quality or 0), 1), 
+                    "stress_level": round(float(row.stress_level or 0), 1),
+                    "screen_time": round(float(row.screen_time or 0), 1),
+                    "productivity": round(float(row.productivity or 0), 1),
+                    "social_activity": round(float(row.social_activity or 0), 1),
+                    "exercise_duration": round(float(row.exercise_duration or 0), 1), 
+                    "has_data": True
+                })
+            
+            chart_data.append(daily_stats)
+
+        return jsonify({
+            "status": "success",
+            "data": chart_data
+        }), 200
+
+    except Exception as e:
+        print(f"Error generating chart: {e}")
+        return jsonify({"error": str(e), "status": "error"}), 500
 
 # ===================== #
 #   HELPER FUNCTIONS    #
