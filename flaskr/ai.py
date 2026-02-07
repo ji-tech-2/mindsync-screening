@@ -212,7 +212,7 @@ def get_daily_advice(top_factors, api_key):
         api_key: Gemini API key
     
     Returns:
-        String with 2-3 sentence suggestion
+        each factor will now have a short daily suggestion string
     """
     if not top_factors:
         return "You're doing great today! Keep up the good work."
@@ -233,15 +233,19 @@ def get_daily_advice(top_factors, api_key):
     {factors_bullet_list}
     
     Task:
-    Generate a short, actionable daily suggestion in exactly 2-3 sentences.
+    Generate a short, actionable daily suggestion in one sentence for each of these factors.
+    Return STRICTLY as a JSON object with the following structure:
+    
+    {{
+        "FACTOR_NAME_1": "One sentence of actionable advice",
+        "FACTOR_NAME_2": "One sentence of actionable advice"
+    }}
     
     Requirements:
-    - Address all the factors: {factors_inline_str}
+    - Create a key for EACH of these factors: {factors_inline_str}
+    - Each value must be exactly one sentence
     - Be warm, encouraging, and actionable
-    - Keep it concise - no more than 3 sentences total
-    - Include one specific tip the user can do today
-    
-    Return ONLY the plain text suggestion, no JSON or formatting.
+    - Include one specific tip the user can do today for each factor
     
     Tone: Friendly, encouraging, actionable.
     Language: English (Standard US).
@@ -254,11 +258,14 @@ def get_daily_advice(top_factors, api_key):
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7
+                temperature=0.7,
+                response_mime_type="application/json"
             )
         )
-        return response.text.strip()
+        return json.loads(response.text.strip())
     
     except Exception as e:
         print(f"Gemini API Error (daily advice): {e}")
-        return "Take a moment to focus on your wellness today. Small steps lead to big improvements!"
+        return {
+            "error": "Take a moment to focus on your wellness today. Small steps lead to big improvements!"
+        }

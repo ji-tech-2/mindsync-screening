@@ -477,9 +477,9 @@ def get_daily_suggestion():
         if top_factors and api_key:
             ai_advice = ai.get_daily_advice(top_factors, api_key)
         elif not api_key:
-            ai_advice = "AI advice unavailable. Take a moment to reflect on your wellness today."
+            ai_advice = {"message": "AI advice unavailable. Take a moment to reflect on your wellness today."}
         elif not top_factors:
-            ai_advice = "No check-ins yet today. Complete a wellness check to get personalized suggestions!"
+            ai_advice = {"message": "No check-ins yet today. Complete a wellness check to get personalized suggestions!"}
         
         # Keep these variables for future database storage
         response_data = {
