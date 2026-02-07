@@ -32,8 +32,8 @@ env/
 Thumbs.db
 
 # --- Testing Files ---
-test_*.py
-test_*.html
+/test_*.py
+/test_*.html
 
 # --- Docker Local Setup ---
 docker-compose.yml
