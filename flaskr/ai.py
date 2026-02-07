@@ -54,7 +54,10 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
         "factors": {{
             "FACTOR_NAME_1": {{
                 "advices": ["String 1", "String 2", "String 3"],
-                "references": ["URL 1", "URL 2"]
+                "references": [
+                    {{"title": "Resource Title 1", "url": "URL 1"}},
+                    {{"title": "Resource Title 2", "url": "URL 2"}}
+                ]
             }},
             "FACTOR_NAME_2": {{
                 ...
@@ -73,7 +76,9 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
        - Create a dictionary key for EACH item in the "Main Struggles" list: {factors_inline_str}.
        - For each factor, provide:
          a. "advices" (Array of Strings): Exactly 3 actionable tips specific to that factor.
-         b. "references" (Array of Strings): Select 1 to 3 relevant URLs specifically for this factor from the list below:
+         b. "references" (Array of Objects): Select 1 to 3 relevant resources for this factor from the list below.
+            Each reference must be a JSON object with "title" (a descriptive name for the resource) and "url" (the link).
+            Sources:
             {TRUSTED_SOURCES}
             (If no link matches perfectly, use a general mental health link).
     
@@ -149,7 +154,10 @@ def get_weekly_advice(top_factors, api_key):
         "factors": {{
             "FACTOR_NAME_1": {{
                 "advices": ["String 1", "String 2", "String 3"],
-                "references": ["URL 1", "URL 2"]
+                "references": [
+                    {{"title": "Resource Title 1", "url": "URL 1"}},
+                    {{"title": "Resource Title 2", "url": "URL 2"}}
+                ]
             }},
             "FACTOR_NAME_2": {{
                 ...
@@ -168,7 +176,9 @@ def get_weekly_advice(top_factors, api_key):
        - Create a key for EACH of these critical factors: {factors_inline_str}.
        - For each factor, provide:
          a. "advices" (Array of Strings): Exactly 3 actionable weekly goals/tips specific to that factor.
-         b. "references" (Array of Strings): 1-3 relevant URLs from:
+         b. "references" (Array of Objects): 1-3 relevant resources from the list below.
+            Each reference must be a JSON object with "title" (a descriptive name for the resource) and "url" (the link).
+            Sources:
             {TRUSTED_SOURCES}
     
     Tone: Professional, warm, encouraging, focused on weekly improvement.
