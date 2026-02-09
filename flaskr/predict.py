@@ -396,18 +396,19 @@ def get_weekly_critical_factors():
                 "factors": {}
             }
         
-        # Store in cache
-        new_cache = WeeklyCriticalFactors(
-            user_id=uuid.UUID(user_id) if user_id else None,
-            week_start=week_start,
-            week_end=week_end,
-            days=days,
-            total_predictions=total_count,
-            top_factors=top_factors,
-            ai_advice=ai_advice
-        )
-        db.session.add(new_cache)
-        db.session.commit()
+        # Only cache if there's actual prediction data
+        if top_factors and api_key:
+            new_cache = WeeklyCriticalFactors(
+                user_id=uuid.UUID(user_id) if user_id else None,
+                week_start=week_start,
+                week_end=week_end,
+                days=days,
+                total_predictions=total_count,
+                top_factors=top_factors,
+                ai_advice=ai_advice
+            )
+            db.session.add(new_cache)
+            db.session.commit()
         
         return jsonify({
             "status": "success",
@@ -471,8 +472,10 @@ def get_daily_suggestion():
                 "status": "bad_request"
             }), 400
         
-        # Calculate today's date range (midnight to midnight)
-        today = datetime.now().date()
+
+        # Calculate today's date range (midnight to midnight) in UTC
+        # pred_date is stored using datetime.utcnow, so we must query in UTC
+        today = datetime.utcnow().date()
         
         # Check if cached data exists for today
         cached_data = DailySuggestions.query.filter_by(
@@ -534,19 +537,22 @@ def get_daily_suggestion():
             ai_advice = ai.get_daily_advice(top_factors, api_key)
         elif not api_key:
             ai_advice = {"message": "AI advice unavailable. Take a moment to reflect on your wellness today."}
-        elif not top_factors:
+        elif prediction_count > 0 and not top_factors:
+            ai_advice = {"message": "Great job! All your wellness areas look good today. Keep it up!"}
+        else:
             ai_advice = {"message": "No check-ins yet today. Complete a wellness check to get personalized suggestions!"}
         
-        # Store in cache
-        new_cache = DailySuggestions(
-            user_id=uuid.UUID(user_id),
-            date=today,
-            prediction_count=prediction_count,
-            top_factors=top_factors,
-            ai_advice=ai_advice
-        )
-        db.session.add(new_cache)
-        db.session.commit()
+        # Only cache if there's actual prediction data
+        if (top_factors and api_key) or (prediction_count > 0 and not top_factors):
+            new_cache = DailySuggestions(
+                user_id=uuid.UUID(user_id),
+                date=today,
+                prediction_count=prediction_count,
+                top_factors=top_factors,
+                ai_advice=ai_advice
+            )
+            db.session.add(new_cache)
+            db.session.commit()
         
         return jsonify({
             "status": "success",
@@ -677,15 +683,17 @@ def get_weekly_chart():
             
             chart_data.append(daily_stats)
 
-        # Store in cache
-        new_cache = WeeklyChartData(
-            user_id=uuid.UUID(user_id),
-            week_start=week_start,
-            week_end=week_end,
-            chart_data=chart_data
-        )
-        db.session.add(new_cache)
-        db.session.commit()
+        # Only cache if there's actual prediction data
+        has_data = any(day["has_data"] for day in chart_data)
+        if has_data:
+            new_cache = WeeklyChartData(
+                user_id=uuid.UUID(user_id),
+                week_start=week_start,
+                week_end=week_end,
+                chart_data=chart_data
+            )
+            db.session.add(new_cache)
+            db.session.commit()
 
         return jsonify({
             "status": "success",
