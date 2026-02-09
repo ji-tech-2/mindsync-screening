@@ -431,8 +431,9 @@ def get_daily_suggestion():
                 "status": "bad_request"
             }), 400
         
-        # Calculate today's date range (midnight to midnight)
-        today = datetime.now().date()
+        # Calculate today's date range (midnight to midnight) in UTC
+        # pred_date is stored using datetime.utcnow, so we must query in UTC
+        today = datetime.utcnow().date()
         start_of_day = datetime.combine(today, datetime.min.time())
         end_of_day = datetime.combine(today, datetime.max.time())
         
@@ -478,7 +479,9 @@ def get_daily_suggestion():
             ai_advice = ai.get_daily_advice(top_factors, api_key)
         elif not api_key:
             ai_advice = {"message": "AI advice unavailable. Take a moment to reflect on your wellness today."}
-        elif not top_factors:
+        elif prediction_count > 0 and not top_factors:
+            ai_advice = {"message": "Great job! All your wellness areas look good today. Keep it up!"}
+        else:
             ai_advice = {"message": "No check-ins yet today. Complete a wellness check to get personalized suggestions!"}
         
         # Keep these variables for future database storage
