@@ -396,18 +396,19 @@ def get_weekly_critical_factors():
                 "factors": {}
             }
         
-        # Store in cache
-        new_cache = WeeklyCriticalFactors(
-            user_id=uuid.UUID(user_id) if user_id else None,
-            week_start=week_start,
-            week_end=week_end,
-            days=days,
-            total_predictions=total_count,
-            top_factors=top_factors,
-            ai_advice=ai_advice
-        )
-        db.session.add(new_cache)
-        db.session.commit()
+        # Only cache if there's actual prediction data
+        if top_factors and api_key:
+            new_cache = WeeklyCriticalFactors(
+                user_id=uuid.UUID(user_id) if user_id else None,
+                week_start=week_start,
+                week_end=week_end,
+                days=days,
+                total_predictions=total_count,
+                top_factors=top_factors,
+                ai_advice=ai_advice
+            )
+            db.session.add(new_cache)
+            db.session.commit()
         
         return jsonify({
             "status": "success",
@@ -541,16 +542,17 @@ def get_daily_suggestion():
         else:
             ai_advice = {"message": "No check-ins yet today. Complete a wellness check to get personalized suggestions!"}
         
-        # Store in cache
-        new_cache = DailySuggestions(
-            user_id=uuid.UUID(user_id),
-            date=today,
-            prediction_count=prediction_count,
-            top_factors=top_factors,
-            ai_advice=ai_advice
-        )
-        db.session.add(new_cache)
-        db.session.commit()
+        # Only cache if there's actual prediction data
+        if (top_factors and api_key) or (prediction_count > 0 and not top_factors):
+            new_cache = DailySuggestions(
+                user_id=uuid.UUID(user_id),
+                date=today,
+                prediction_count=prediction_count,
+                top_factors=top_factors,
+                ai_advice=ai_advice
+            )
+            db.session.add(new_cache)
+            db.session.commit()
         
         return jsonify({
             "status": "success",
@@ -681,15 +683,17 @@ def get_weekly_chart():
             
             chart_data.append(daily_stats)
 
-        # Store in cache
-        new_cache = WeeklyChartData(
-            user_id=uuid.UUID(user_id),
-            week_start=week_start,
-            week_end=week_end,
-            chart_data=chart_data
-        )
-        db.session.add(new_cache)
-        db.session.commit()
+        # Only cache if there's actual prediction data
+        has_data = any(day["has_data"] for day in chart_data)
+        if has_data:
+            new_cache = WeeklyChartData(
+                user_id=uuid.UUID(user_id),
+                week_start=week_start,
+                week_end=week_end,
+                chart_data=chart_data
+            )
+            db.session.add(new_cache)
+            db.session.commit()
 
         return jsonify({
             "status": "success",
