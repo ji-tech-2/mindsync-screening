@@ -25,13 +25,14 @@ COPY flaskr/ ./flaskr/
 # Test Stage
 FROM base AS test
 COPY tests/ ./tests/
+COPY pytest.ini .
 COPY requirements-dev.txt .
 
 # Install test dependencies from requirements-dev.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt
 
 # Run tests
-RUN pytest tests/ -v --tb=short || true
+RUN pytest tests/ -v --tb=short
 
 # Final Stage
 FROM base
