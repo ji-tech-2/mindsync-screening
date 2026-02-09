@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import func
 
 from . import model, cache, ai
-from .db import db, Predictions, PredDetails, Advices, References, UserStreaks, is_valid_uuid
+from .db import db, Predictions, PredDetails, Advices, References, UserStreaks, WeeklyCriticalFactors, WeeklyChartData, DailySuggestions, is_valid_uuid
 
 # Constants
 FACTOR_TYPE_IMPROVEMENT = 'improvement'
@@ -305,7 +305,32 @@ def get_weekly_critical_factors():
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
+        week_start = start_date.date()
+        week_end = end_date.date()
         
+        # Check if cached data exists for this time period
+        cached_query = WeeklyCriticalFactors.query.filter_by(
+            week_start=week_start,
+            week_end=week_end,
+            days=days
+        )
+        
+        if user_id:
+            cached_query = cached_query.filter_by(user_id=uuid.UUID(user_id))
+        else:
+            cached_query = cached_query.filter_by(user_id=None)
+        
+        cached_data = cached_query.first()
+        
+        if cached_data:
+            # Return cached data
+            return jsonify({
+                "status": "success",
+                "cached": True,
+                **cached_data.to_dict()
+            }), 200
+        
+        # No cache found, calculate fresh data
         # Build query to get top critical factors
         query = db.session.query(
             PredDetails.factor_name,
@@ -371,8 +396,22 @@ def get_weekly_critical_factors():
                 "factors": {}
             }
         
+        # Store in cache
+        new_cache = WeeklyCriticalFactors(
+            user_id=uuid.UUID(user_id) if user_id else None,
+            week_start=week_start,
+            week_end=week_end,
+            days=days,
+            total_predictions=total_count,
+            top_factors=top_factors,
+            ai_advice=ai_advice
+        )
+        db.session.add(new_cache)
+        db.session.commit()
+        
         return jsonify({
             "status": "success",
+            "cached": False,
             "period": {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
@@ -388,6 +427,7 @@ def get_weekly_critical_factors():
     
     except Exception as e:
         print(f"Error in weekly critical factors: {e}")
+        db.session.rollback()
         return jsonify({
             "error": str(e),
             "status": "error"
@@ -431,9 +471,26 @@ def get_daily_suggestion():
                 "status": "bad_request"
             }), 400
         
+
         # Calculate today's date range (midnight to midnight) in UTC
         # pred_date is stored using datetime.utcnow, so we must query in UTC
         today = datetime.utcnow().date()
+        
+        # Check if cached data exists for today
+        cached_data = DailySuggestions.query.filter_by(
+            user_id=uuid.UUID(user_id),
+            date=today
+        ).first()
+        
+        if cached_data:
+            # Return cached data
+            return jsonify({
+                "status": "success",
+                "cached": True,
+                **cached_data.to_dict()
+            }), 200
+        
+        # No cache found, calculate fresh data
         start_of_day = datetime.combine(today, datetime.min.time())
         end_of_day = datetime.combine(today, datetime.max.time())
         
@@ -484,24 +541,32 @@ def get_daily_suggestion():
         else:
             ai_advice = {"message": "No check-ins yet today. Complete a wellness check to get personalized suggestions!"}
         
-        # Keep these variables for future database storage
-        response_data = {
+        # Store in cache
+        new_cache = DailySuggestions(
+            user_id=uuid.UUID(user_id),
+            date=today,
+            prediction_count=prediction_count,
+            top_factors=top_factors,
+            ai_advice=ai_advice
+        )
+        db.session.add(new_cache)
+        db.session.commit()
+        
+        return jsonify({
+            "status": "success",
+            "cached": False,
             "date": today.isoformat(),
             "user_id": user_id,
             "stats": {
                 "predictions_today": prediction_count
             },
             "areas_of_improvement": top_factors,
-        }
-        # TODO: Save response_data to database when schema is updated
-        
-        return jsonify({
-            "status": "success",
             "suggestion": ai_advice
         }), 200
     
     except Exception as e:
         print(f"Error in daily suggestion: {e}")
+        db.session.rollback()
         return jsonify({
             "error": str(e),
             "status": "error"
@@ -531,8 +596,27 @@ def get_weekly_chart():
     try:
         # Define Date Range (Last 7 Days including today)
         today = datetime.utcnow().date()
-        end_date = datetime.combine(today, datetime.max.time())
         start_date = today - timedelta(days=6)
+        week_start = start_date
+        week_end = today
+        
+        # Check if cached data exists for this time period
+        cached_data = WeeklyChartData.query.filter_by(
+            user_id=uuid.UUID(user_id),
+            week_start=week_start,
+            week_end=week_end
+        ).first()
+        
+        if cached_data:
+            # Return cached data
+            return jsonify({
+                "status": "success",
+                "cached": True,
+                **cached_data.to_dict()
+            }), 200
+        
+        # No cache found, calculate fresh data
+        end_date = datetime.combine(today, datetime.max.time())
         
         # Query Data (Group by Date to handle multiple check-ins per day)
         # We take the AVERAGE if a user checks in multiple times a day
@@ -597,10 +681,29 @@ def get_weekly_chart():
             
             chart_data.append(daily_stats)
 
+        # Store in cache
+        new_cache = WeeklyChartData(
+            user_id=uuid.UUID(user_id),
+            week_start=week_start,
+            week_end=week_end,
+            chart_data=chart_data
+        )
+        db.session.add(new_cache)
+        db.session.commit()
+
         return jsonify({
             "status": "success",
+            "cached": False,
             "data": chart_data
         }), 200
+    
+    except Exception as e:
+        print(f"Error in weekly chart: {e}")
+        db.session.rollback()
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
 
     except Exception as e:
         print(f"Error generating chart: {e}")

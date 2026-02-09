@@ -129,6 +129,86 @@ class UserStreaks(db.Model):
             }
         }
 
+class WeeklyCriticalFactors(db.Model):
+    """Cache for weekly critical factors analysis."""
+    __tablename__ = 'weekly_critical_factors'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(UUID(as_uuid=True), nullable=True, index=True)
+    week_start = db.Column(db.Date, nullable=False, index=True)
+    week_end = db.Column(db.Date, nullable=False)
+    days = db.Column(db.Integer, default=7)
+    total_predictions = db.Column(db.Integer, default=0)
+    
+    # Store JSON data
+    top_factors = db.Column(db.JSON, nullable=False)  # List of {factor_name, count, avg_impact_score}
+    ai_advice = db.Column(db.JSON, nullable=True)  # AI-generated advice
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert to dictionary for API response."""
+        return {
+            "period": {
+                "start_date": self.week_start.isoformat(),
+                "end_date": self.week_end.isoformat(),
+                "days": self.days
+            },
+            "stats": {
+                "total_predictions": self.total_predictions,
+                "user_id": str(self.user_id) if self.user_id else None
+            },
+            "top_critical_factors": self.top_factors,
+            "advice": self.ai_advice
+        }
+
+class WeeklyChartData(db.Model):
+    """Cache for weekly chart data."""
+    __tablename__ = 'weekly_chart_data'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(UUID(as_uuid=True), nullable=False, index=True)
+    week_start = db.Column(db.Date, nullable=False, index=True)
+    week_end = db.Column(db.Date, nullable=False)
+    
+    # Store JSON data
+    chart_data = db.Column(db.JSON, nullable=False)  # List of daily stats
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert to dictionary for API response."""
+        return {
+            "data": self.chart_data
+        }
+
+class DailySuggestions(db.Model):
+    """Cache for daily suggestions."""
+    __tablename__ = 'daily_suggestions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(UUID(as_uuid=True), nullable=False, index=True)
+    date = db.Column(db.Date, nullable=False, index=True)
+    prediction_count = db.Column(db.Integer, default=0)
+    
+    # Store JSON data
+    top_factors = db.Column(db.JSON, nullable=False)  # List of {factor_name, impact_score}
+    ai_advice = db.Column(db.JSON, nullable=True)  # AI-generated suggestion
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert to dictionary for API response."""
+        return {
+            "date": self.date.isoformat(),
+            "user_id": str(self.user_id),
+            "stats": {
+                "predictions_today": self.prediction_count
+            },
+            "areas_of_improvement": self.top_factors,
+            "suggestion": self.ai_advice
+        }
+
 # ===================== #
 #    HELPER FUNCTIONS   #
 # ===================== #
