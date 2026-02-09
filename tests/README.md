@@ -1,6 +1,15 @@
 # Test Execution Guide
 
-## Running Tests
+## Running Tests Locally
+
+**Prerequisites:**
+
+```bash
+# Install test dependencies
+pip install -r requirements-dev.txt
+```
+
+**Note:** `pytest.ini` automatically sets `PYTHONPATH` so the `flaskr` module is importable.
 
 ### Run all tests:
 

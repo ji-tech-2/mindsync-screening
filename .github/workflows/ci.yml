@@ -13,8 +13,5 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker Image for Testing
-        run: docker build --target test -t mindsync-screening-test .
-
-      - name: Run tests
-        run: docker run --rm mindsync-screening-test
+      - name: Build and Run Tests in Docker
+        run: docker build --target test .
