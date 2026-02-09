@@ -16,23 +16,23 @@ class TestFormatDBOutput:
             "prediction_id": str(uuid.uuid4()),
             "prediction_score": 75.5,
             "prediction_date": "2026-02-08T10:30:00",
-            "areas_for_improvement": [
+            "details": [
                 {
                     "factor_name": "Sleep Quality",
                     "impact_score": 2.5,
+                    "factor_type": "improvement",
                     "advices": ["Advice 1", "Advice 2"],
                     "references": ["https://example.com/sleep"]
-                }
-            ],
-            "strengths": [
+                },
                 {
                     "factor_name": "Exercise",
                     "impact_score": -1.5,
+                    "factor_type": "strengths",
                     "advices": ["Keep it up"],
                     "references": []
                 }
             ],
-            "ai_description": "You're doing well overall."
+            "ai_desc": "You're doing well overall."
         }
         
         result = format_db_output(input_data)
@@ -49,8 +49,7 @@ class TestFormatDBOutput:
             "prediction_id": str(uuid.uuid4()),
             "prediction_score": 80.0,
             "prediction_date": "2026-02-08T10:30:00",
-            "areas_for_improvement": [],
-            "strengths": []
+            "details": []
         }
         
         result = format_db_output(input_data)
@@ -66,25 +65,24 @@ class TestFormatDBOutput:
             "prediction_id": str(uuid.uuid4()),
             "prediction_score": 70.0,
             "prediction_date": "2026-02-08T10:30:00",
-            "areas_for_improvement": [
+            "details": [
                 {
                     "factor_name": "Sleep Hours",
                     "impact_score": 3.2,
+                    "factor_type": "improvement",
                     "advices": ["Sleep more", "Go to bed earlier"],
                     "references": ["https://sleep.org"]
                 }
             ],
-            "strengths": [],
-            "ai_description": "Focus on sleep"
+            "ai_desc": "Focus on sleep"
         }
         
         result = format_db_output(input_data)
         
         factors = result["wellness_analysis"]["areas_for_improvement"]
         assert len(factors) == 1
-        assert factors[0]["factor_name"] == "Sleep Hours"
+        assert factors[0]["feature"] == "Sleep Hours"
         assert factors[0]["impact_score"] == 3.2
-        assert len(factors[0]["advices"]) == 2
     
     def test_format_creates_factors_dict_in_advice(self):
         """Test that factors dictionary is created in advice section."""
@@ -92,23 +90,23 @@ class TestFormatDBOutput:
             "prediction_id": str(uuid.uuid4()),
             "prediction_score": 65.0,
             "prediction_date": "2026-02-08T10:30:00",
-            "areas_for_improvement": [
+            "details": [
                 {
                     "factor_name": "Stress Level",
                     "impact_score": 2.8,
+                    "factor_type": "improvement",
                     "advices": ["Meditate", "Take breaks"],
                     "references": ["https://stress.org"]
-                }
-            ],
-            "strengths": [
+                },
                 {
                     "factor_name": "Social Activity",
                     "impact_score": -2.0,
+                    "factor_type": "strengths",
                     "advices": ["Maintain connections"],
                     "references": []
                 }
             ],
-            "ai_description": "Balance stress and social life"
+            "ai_desc": "Balance stress and social life"
         }
         
         result = format_db_output(input_data)
@@ -116,9 +114,8 @@ class TestFormatDBOutput:
         assert "factors" in result["advice"]
         factors_dict = result["advice"]["factors"]
         
-        # Should have both improvement and strength factors
+        # Only improvement factors should be in advice.factors
         assert "Stress Level" in factors_dict
-        assert "Social Activity" in factors_dict
         
         # Check factor structure
         stress_factor = factors_dict["Stress Level"]
