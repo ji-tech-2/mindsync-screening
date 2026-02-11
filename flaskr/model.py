@@ -304,11 +304,13 @@ def analyze_wellness_factors(user_df):
 def categorize_mental_health_score(prediction_score):
     """Categorize mental health score."""
     prediction_score = float(prediction_score)
-    if prediction_score <= 12:
+    capped_score = min(max(prediction_score, 0), 100)
+
+    if capped_score <= 12:
         return "dangerous"
-    elif prediction_score <= 28.6:
+    elif capped_score <= 28.6:
         return "not healthy"
-    elif prediction_score <= 61.4:
+    elif capped_score <= 61.4:
         return "average"
     else:
         return "healthy"
