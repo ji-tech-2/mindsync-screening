@@ -31,6 +31,10 @@ COPY requirements-dev.txt .
 # Install test dependencies from requirements-dev.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt
 
+# Run linting
+RUN flake8 flaskr/ tests/ --max-line-length=88
+RUN black --check flaskr/ tests/
+
 # Run tests
 RUN pytest tests/ -v --tb=short
 
