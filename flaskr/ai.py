@@ -1,38 +1,40 @@
 """
 AI Advice generation using Google Gemini
 """
+
 import json
 from google import genai
 from google.genai import types
 
 # Trusted resources for AI advice
-TRUSTED_SOURCES = """
-    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep
-    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome
+TRUSTED_SOURCES = """  # noqa: E501
+    - https://www.mayoclinichealthsystem.org/hometown-health/speaking-of-health/5-ways-to-get-better-sleep  # noqa: E501
+    - https://www.aoa.org/healthy-eyes/eye-and-vision-conditions/computer-vision-syndrome  # noqa: E501
     - https://www.sleepfoundation.org/sleep-hygiene
     - https://www.cdc.gov/sleep/about/index.html
     - https://www.apa.org/topics/stress/tips
     - https://www.nimh.nih.gov/health/topics/caring-for-your-mental-health
     - https://www.who.int/news-room/fact-sheets/detail/physical-activity
-    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults
-    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships
-    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/
+    - https://www.nia.nih.gov/health/brain-health/cognitive-health-and-older-adults  # noqa: E501
+    - https://www.health.harvard.edu/staying-healthy/the-health-benefits-of-strong-relationships  # noqa: E501
+    - https://newsnetwork.mayoclinic.org/discussion/mayo-clinic-minute-boost-your-health-and-productivity-with-activity-snacks/  # noqa: E501
     - https://youtu.be/dlgCJd1cfy8?si=mmk2X8vvUGjtvWBJ
     """
 
+
 def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key):
     """Generate personalized AI advice using Gemini."""
-    
+
     # Extract top factors
     top_factors_list = []
-    if wellness_analysis_result and 'areas_for_improvement' in wellness_analysis_result:
+    if wellness_analysis_result and "areas_for_improvement" in wellness_analysis_result:
         top_factors_list = [
-            item['feature'] 
-            for item in wellness_analysis_result['areas_for_improvement'][:3]
+            item["feature"]
+            for item in wellness_analysis_result["areas_for_improvement"][:3]
         ]
-    
+
     if top_factors_list:
-        factors_inline_str = ", ".join(top_factors_list)
+        factors_inline_str = ", ".join(top_factors_list)  # noqa: E501
         factors_bullet_list = "\n".join([f"- {f}" for f in top_factors_list])
     else:
         factors_inline_str = "General Wellness"
@@ -41,14 +43,14 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
     # Prompt for Gemini
     prompt = f"""
     Role: You are 'MindSync', a mental health AI advisor.
-    
+
     User Context:
     - Risk Level: "{category}" (Score: {prediction_score})
     - Main Struggles: {factors_bullet_list}
-    
+
     Task:
     Generate advice and return it STRICTLY as a JSON object with the following structure:
-    
+
     {{
         "description": "String (warm empathy paragraph)",
         "factors": {{
@@ -67,88 +69,98 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
 
     Detailed Requirements:
 
-    1. "description": 
+    1. "description":
        - Write a warm, validating paragraph based on Risk Level "{category}".
        - Do NOT explicitly state the category name.
        - Acknowledge that dealing with {factors_inline_str} is challenging.
 
     2. "factors":
-       - Create a dictionary key for EACH item in the "Main Struggles" list: {factors_inline_str}.
+       - Create a dictionary key for EACH item in the "Main Struggles" list: {factors_inline_str}.  # noqa: E501
        - For each factor, provide:
          a. "advices" (Array of Strings): Exactly 3 actionable tips specific to that factor.
-         b. "references" (Array of Objects): Select 1 to 3 relevant resources for this factor from the list below.
-            Each reference must be a JSON object with "title" (a descriptive name for the resource) and "url" (the link).
+         b. "references" (Array of Objects): Select 1 to 3 relevant resources for this factor from the list below.  # noqa: E501
+            Each reference must be a JSON object with "title" (a descriptive name for the resource) and "url" (the link).  # noqa: E501
             Sources:
             {TRUSTED_SOURCES}
             (If no link matches perfectly, use a general mental health link).
-    
+
     Tone: Professional, warm, non-judgmental.
     Language: English (Standard US).
     """
 
     try:
         client = genai.Client(api_key=api_key)
-        
+
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
-                response_mime_type="application/json"
-            )
+                temperature=0.7, response_mime_type="application/json"
+            ),
         )
         return json.loads(response.text.strip())
-    
+
     except json.JSONDecodeError as e:
         print(f"Gemini API JSON Parse Error: {e}")
-        print(f"Raw response: {response.text[:500] if response and response.text else 'No response'}")
+        response_preview = (
+            response.text[:500] if response and response.text else "No response"
+        )
+        print(f"Raw response: {response_preview}")
         return {
-            "description": "We encountered an issue processing the AI response. Please try again.",
-            "factors": {}
+            "description": (
+                "We encountered an issue processing the AI response. "
+                "Please try again."
+            ),
+            "factors": {},
         }
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return {
-            "description": "We encountered a temporary issue generating your personalized plan.",
-            "factors": {}
+            "description": (
+                "We encountered a temporary issue generating your " "personalized plan."
+            ),
+            "factors": {},
         }
 
 
 def get_weekly_advice(top_factors, api_key):
     """
     Generate AI advice for the top critical factors from the past week.
-    
+
     Args:
         top_factors: List of dicts with 'factor_name', 'count', and 'avg_impact_score'
         api_key: Gemini API key
-    
+
     Returns:
         Dict with description and advice for each factor
     """
     if not top_factors:
         return {
             "description": "Great job! No critical factors detected this week.",
-            "factors": {}
+            "factors": {},
         }
-    
+
     # Build factor context
     factors_list = [f["factor_name"] for f in top_factors]
-    factors_inline_str = ", ".join(factors_list)
-    factors_bullet_list = "\n".join([
-        f"- {f['factor_name']} (appeared {f['count']} times, avg impact: {f['avg_impact_score']:.2f})"
-        for f in top_factors
-    ])
+    factors_inline_str = ", ".join(factors_list)  # noqa: E501
+    factors_bullet_list = "\n".join(  # noqa: E501
+        [
+            f"- {f['factor_name']} (appeared {f['count']} times, "
+            f"avg impact: {f['avg_impact_score']:.2f})"
+            for f in top_factors
+        ]
+    )
 
     prompt = f"""
     Role: You are 'MindSync', a mental health AI advisor providing a weekly wellness summary.
-    
+
     Context:
     Based on the user's activity this past week, here are the most frequent areas that need attention:
     {factors_bullet_list}
-    
+
     Task:
     Generate a weekly summary with advice. Return STRICTLY as a JSON object:
-    
+
     {{
         "description": "String (warm weekly summary paragraph)",
         "factors": {{
@@ -167,7 +179,7 @@ def get_weekly_advice(top_factors, api_key):
 
     Requirements:
 
-    1. "description": 
+    1. "description":
        - Write a warm, encouraging weekly summary.
        - Acknowledge that {factors_inline_str} have been recurring challenges this week.
        - Encourage progress and self-compassion.
@@ -175,107 +187,118 @@ def get_weekly_advice(top_factors, api_key):
     2. "factors":
        - Create a key for EACH of these critical factors: {factors_inline_str}.
        - For each factor, provide:
-         a. "advices" (Array of Strings): Exactly 3 actionable weekly goals/tips specific to that factor.
+         a. "advices" (Array of Strings): Exactly 3 actionable weekly goals/tips specific to that factor.  # noqa: E501
          b. "references" (Array of Objects): 1-3 relevant resources from the list below.
-            Each reference must be a JSON object with "title" (a descriptive name for the resource) and "url" (the link).
+            Each reference must be a JSON object with "title" (a descriptive name for the resource) and "url" (the link).  # noqa: E501
             Sources:
             {TRUSTED_SOURCES}
-    
+
     Tone: Professional, warm, encouraging, focused on weekly improvement.
     Language: English (Standard US).
     """
 
     try:
         client = genai.Client(api_key=api_key)
-        
+
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
-                response_mime_type="application/json"
-            )
+                temperature=0.7, response_mime_type="application/json"
+            ),
         )
         return json.loads(response.text.strip())
-    
+
     except json.JSONDecodeError as e:
         print(f"Gemini API JSON Parse Error (weekly advice): {e}")
-        print(f"Raw response: {response.text[:500] if response and response.text else 'No response'}")
+        response_preview = (
+            response.text[:500] if response and response.text else "No response"
+        )
+        print(f"Raw response: {response_preview}")
         return {
-            "description": "We encountered an issue processing the AI response. Please try again.",
-            "factors": {}
+            "description": (
+                "We encountered an issue processing the AI response. "
+                "Please try again."
+            ),
+            "factors": {},
         }
     except Exception as e:
         print(f"Gemini API Error (weekly advice): {e}")
         return {
-            "description": "We encountered a temporary issue generating your weekly summary.",
-            "factors": {}
+            "description": (
+                "We encountered a temporary issue generating your " "weekly summary."
+            ),
+            "factors": {},
         }
 
 
 def get_daily_advice(top_factors, api_key):
     """
     Generate a short AI suggestion for today's areas of improvement.
-    
+
     Args:
         top_factors: List of dicts with 'factor_name' and 'impact_score'
         api_key: Gemini API key
-    
+
     Returns:
         each factor will now have a short daily suggestion string
     """
     if not top_factors:
         return "You're doing great today! Keep up the good work."
-    
+
     # Build factor context
     factors_list = [f["factor_name"] for f in top_factors]
-    factors_inline_str = ", ".join(factors_list)
-    factors_bullet_list = "\n".join([
-        f"- {f['factor_name']} (impact score: {f['impact_score']:.2f})"
-        for f in top_factors
-    ])
+    factors_inline_str = ", ".join(factors_list)  # noqa: E501
+    factors_bullet_list = "\n".join(  # noqa: E501
+        [
+            f"- {f['factor_name']} (impact score: {f['impact_score']:.2f})"
+            for f in top_factors
+        ]
+    )
 
     prompt = f"""
     Role: You are 'MindSync', a mental health AI advisor providing a daily wellness tip.
-    
+
     Context:
     Based on the user's check-in today, here are the areas that need attention:
     {factors_bullet_list}
-    
+
     Task:
     Generate a short, actionable daily suggestion in one sentence for each of these factors.
     Return STRICTLY as a JSON object with the following structure:
-    
+
     {{
         "FACTOR_NAME_1": "One sentence of actionable advice",
         "FACTOR_NAME_2": "One sentence of actionable advice"
     }}
-    
+
     Requirements:
     - Create a key for EACH of these factors: {factors_inline_str}
     - Each value must be exactly one sentence
     - Be warm, encouraging, and actionable
-    - Include one specific tip the user can do today for each factor
-    
+    - Include one specific tip the user can do today for each factor  # noqa: E501
+
     Tone: Friendly, encouraging, actionable.
     Language: English (Standard US).
     """
 
     try:
         client = genai.Client(api_key=api_key)
-        
+
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                temperature=0.7,
-                response_mime_type="application/json"
-            )
+                temperature=0.7, response_mime_type="application/json"
+            ),
         )
         return json.loads(response.text.strip())
-    
+
     except Exception as e:
         print(f"Gemini API Error (daily advice): {e}")
         return {
-            "error": "Take a moment to focus on your wellness today. Small steps lead to big improvements!"
+            "error": (
+                "Take a moment to focus on your wellness today. "
+                "Small steps lead to big improvements!"
+            )
         }
