@@ -18,11 +18,79 @@ healthy_cluster_df = None
 coefficients_df = None
 
 
+def download_artifacts_from_wandb(artifacts_path):
+    """
+    Attempt to download artifacts from Weights & Biases.
+    
+    Returns True if successful or if artifacts already exist locally.
+    """
+    try:
+        import wandb
+        
+        # Check if we should skip W&B download
+        skip_wandb = os.getenv("SKIP_WANDB_DOWNLOAD", "false").lower() == "true"
+        if skip_wandb:
+            print("⏭️ Skipping W&B download (SKIP_WANDB_DOWNLOAD=true)")
+            return True
+        
+        # Configuration from environment
+        wandb_project = os.getenv("WANDB_PROJECT", "mindsync-model")
+        wandb_entity = os.getenv("WANDB_ENTITY", None)
+        artifact_name = "mindsync-model"
+        artifact_version = os.getenv("ARTIFACT_VERSION", "latest")
+        
+        print("☁️ Attempting to download artifacts from Weights & Biases...")
+        
+        # Initialize W&B API
+        api = wandb.Api()
+        
+        # Construct artifact path
+        if wandb_entity:
+            artifact_path = f"{wandb_entity}/{wandb_project}/{artifact_name}:{artifact_version}"
+        else:
+            artifact_path = f"{wandb_project}/{artifact_name}:{artifact_version}"
+        
+        print(f"📦 Fetching artifact: {artifact_path}")
+        
+        # Check if healthy_cluster_avg.csv exists locally (should be preserved)
+        healthy_cluster_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
+        backup_path = None
+        if os.path.exists(healthy_cluster_path):
+            backup_path = healthy_cluster_path + ".backup"
+            import shutil
+            shutil.copy2(healthy_cluster_path, backup_path)
+            print("💾 Backed up local healthy_cluster_avg.csv")
+        
+        # Download artifact
+        artifact = api.artifact(artifact_path, type='model')
+        artifact_dir = artifact.download(root=artifacts_path)
+        
+        # Restore local healthy_cluster_avg.csv if it was backed up
+        if backup_path and os.path.exists(backup_path):
+            shutil.move(backup_path, healthy_cluster_path)
+            print("✅ Restored local healthy_cluster_avg.csv (not overwritten from W&B)")
+        
+        print(f"✅ Artifacts downloaded from W&B to: {artifact_dir}")
+        return True
+        
+    except ImportError:
+        print("⚠️ wandb not installed, skipping W&B download")
+        return True
+        
+    except Exception as e:
+        print(f"⚠️ Could not download from W&B: {e}")
+        print("   Will attempt to use local artifacts if available")
+        return True
+
+
 def init_app(app):
     """Initialize ML model with the app."""
     global model, preprocessor, healthy_cluster_df, coefficients_df
 
     artifacts_path = os.path.join(app.root_path, "..", "artifacts")
+    
+    # Try to download artifacts from W&B
+    download_artifacts_from_wandb(artifacts_path)
 
     # Register custom objects under __main__ for pickle compatibility
     sys.modules["__main__"].clean_occupation_column = clean_occupation_column

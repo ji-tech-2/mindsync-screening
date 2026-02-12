@@ -1,6 +1,14 @@
-# MindSync - Mental Health Prediction API
+# MindSync - Mental Health Prediction API (Inference Service)
 
-Machine Learning API untuk prediksi kesehatan mental menggunakan Flask, scikit-learn, dan Google Gemini AI.
+**Independent microservice** untuk serving ML predictions menggunakan Flask, scikit-learn, dan Google Gemini AI.
+
+> **Note**: Service ini adalah microservice yang terpisah dan independen. Model artifacts di-download dari Weights & Biases yang di-upload oleh training service secara terpisah.
+
+## 🏗️ Architecture Overview
+
+- **Training Service**: `mindsync-model-training` - Independent service, training model dan upload ke W&B
+- **Inference Service**: `mindsync-model-flask` (service ini) - Independent service, download dari W&B dan serving predictions
+- **Communication**: Via Weights & Biases artifact storage (no direct connection)
 
 ## 📁 Project Structure (Updated)
 
@@ -9,30 +17,118 @@ mindsync-model-flask/
 ├── flaskr/                    # Main application package
 │   ├── __init__.py           # Application factory
 │   ├── db.py                 # Database models (PostgreSQL)
-│   ├── model.py              # ML model & preprocessing
+│   ├── model.py              # ML model & preprocessing (+ W&B download)
 │   ├── cache.py              # Valkey/Redis caching
 │   ├── ai.py                 # Gemini AI integration
 │   ├── predict.py            # Prediction routes
 │   ├── templates/            # HTML templates (future)
 │   └── static/               # Static files (future)
-├── artifacts/                 # ML model artifacts
-│   ├── model.pkl
-│   ├── preprocessor.pkl
-│   ├── model_coefficients.csv
-│   ├── feature_importance.csv
-│   └── healthy_cluster_avg.csv
+├── artifacts/                 # ML model artifacts (downloaded from W&B)
+│   ├── model.pkl             # ⬇️ Downloaded from W&B
+│   ├── preprocessor.pkl      # ⬇️ Downloaded from W&B
+│   ├── model_coefficients.csv    # ⬇️ Downloaded from W&B
+│   ├── feature_importance.csv    # ⬇️ Downloaded from W&B
+│   └── healthy_cluster_avg.csv   # 📌 LOCAL FILE (preserved, not overwritten)
 ├── tests/                     # Unit tests
 │   ├── __init__.py
 │   ├── test_core_endpoints.py      # Health, predict, result, advice tests
 │   └── test_weekly_daily_endpoints.py  # Weekly/daily suggestion tests
 ├── notebook/                  # Jupyter notebooks
 │   └── final_FINAL.ipynb
+├── download_artifacts.py      # Script to download from W&B
 ├── .env                       # Environment variables
 ├── .dockerignore              # Docker ignore rules
 ├── Dockerfile                 # Docker configuration
 ├── wsgi.py                    # Application entry point
-├── requirements.txt           # Python dependencies
+├── requirements.txt           # Python dependencies (includes wandb)
 └── README.md
+```
+
+## 🔄 Model Artifacts Management
+
+### Automatic Download at Startup
+
+Model artifacts automatically download from W&B when Flask app starts (see `flaskr/model.py`).
+
+**Note**: `healthy_cluster_avg.csv` is a **local file** that will **NOT** be overwritten by W&B downloads. Other artifacts (model.pkl, preprocessor.pkl, coefficients, etc.) will be updated with latest from W&B.
+
+### CI/CD Workflow
+
+**Automatic Deployment on Push to Main**:
+
+```
+Developer creates PR → Tests run → Merge to main
+    ↓
+GitHub Actions: deploy.yml auto-triggers
+    ↓
+Download LATEST model from W&B
+    ↓
+Run tests
+    ↓
+Build Docker image ✅
+```
+
+**Triggers**:
+- `push` to `main` branch
+- `workflow_dispatch` - Manual trigger with version option
+
+### Standard Development Flow
+
+```bash
+# 1. Create feature branch
+git checkout -b feature/improve-api
+
+# 2. Make changes to flaskr/predict.py, etc.
+# 3. Create PR and get review
+# 4. Merge to main → Deployment auto-runs! ✅
+# Latest model from W&B will be downloaded
+```
+
+### Quick Model Update (No Code Changes)
+
+```bash
+# Force deployment to get latest model from W&B
+git commit --allow-empty -m "chore: update to latest model"
+git push origin main
+```
+
+## 🔄 Model Artifacts Management
+
+### Automatic Download at Startup
+
+Service ini akan otomatis mencoba download artifacts dari W&B saat startup:
+
+1. Saat `init_app()` dipanggil, service cek W&B untuk artifacts terbaru
+2. Jika tersedia, download ke direktori `artifacts/`
+3. Jika gagal, gunakan artifacts lokal (fallback)
+
+### Manual Download
+
+Download artifacts secara manual:
+
+```bash
+# Set environment variables terlebih dahulu
+export WANDB_API_KEY=your-api-key
+export WANDB_PROJECT=mindsync-model
+export WANDB_ENTITY=your-username
+
+# Run download script
+python download_artifacts.py
+```
+
+### Environment Variables untuk W&B
+
+```env
+# Weights & Biases Configuration
+WANDB_API_KEY=your-wandb-api-key
+WANDB_PROJECT=mindsync-model
+WANDB_ENTITY=your-wandb-username
+
+# Artifact version ('latest' or specific version like 'v0', 'v1')
+ARTIFACT_VERSION=latest
+
+# Optional: Skip W&B download (use local artifacts only)
+SKIP_WANDB_DOWNLOAD=false
 ```
 
 ## 🚀 Quick Start
@@ -55,12 +151,35 @@ python -m venv .venv
 Edit [.env](.env) file:
 
 ```env
+# Gemini AI
 GEMINI_API_KEY=your_gemini_api_key_here
-DATABASE_URL=postgresql://user:pass@host:port/dbname  # Optional for dev
-VALKEY_URL=redis://localhost:6379  # Optional
+
+# Database (Optional for dev)
+DATABASE_URL=postgresql://user:pass@host:port/dbname
+
+# Cache (Optional)
+VALKEY_URL=redis://localhost:6379
+
+# Weights & Biases (Required for artifact download)
+WANDB_API_KEY=your_wandb_api_key
+WANDB_PROJECT=mindsync-model
+WANDB_ENTITY=your_username
+ARTIFACT_VERSION=latest
 ```
 
-### 3. Install & Run
+### 3. Download Model Artifacts
+
+**First time setup - download artifacts from W&B:**
+
+```bash
+# Login to W&B (only needed once)
+wandb login
+
+# Download artifacts
+python download_artifacts.py
+```
+
+### 4. Install & Run
 
 **Option A: Using PowerShell Script (Recommended)**
 ```powershell
@@ -72,7 +191,6 @@ VALKEY_URL=redis://localhost:6379  # Optional
 # Install in development mode
 pip install -e .
 
-
 # Run application
 python wsgi.py
 ```
@@ -83,6 +201,49 @@ set FLASK_APP=wsgi.py
 set FLASK_DEBUG=True
 flask run
 ```
+
+## 🐳 Docker Deployment
+
+### Build Image
+
+```bash
+docker build -t mindsync-inference .
+```
+
+### Run Container (Standalone)
+
+```bash
+docker run -p 5000:5000 \
+  -e WANDB_API_KEY=your-api-key \
+  -e WANDB_PROJECT=mindsync-model \
+  -e WANDB_ENTITY=your-username \
+  -e GEMINI_API_KEY=your-gemini-key \
+  mindsync-inference
+```
+
+### Docker Compose (With Dependencies)
+
+Service ini punya `docker-compose.yml` sendiri yang include database dan cache:
+
+```bash
+# Start full stack
+docker-compose up
+
+# Start hanya inference (tanpa DB/cache)
+docker-compose up inference
+```
+
+### CI/CD Integration
+
+Service ini memiliki GitHub Actions workflow sendiri di `.github/workflows/`:
+
+- **deploy.yml** - Build dan deploy inference service
+- **test.yml** - Automated testing untuk PR dan commits
+
+Setup secrets di repository:
+- `WANDB_API_KEY`
+- `WANDB_ENTITY`
+- `GEMINI_API_KEY`
 
 ## 📡 API Endpoints
 

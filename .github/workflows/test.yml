@@ -1,0 +1,50 @@
+name: Test
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+      
+      - name: Lint code
+        run: |
+          pip install flake8
+          flake8 flaskr/ --count --select=E9,F63,F7,F82 --show-source --statistics
+      
+      - name: Run tests
+        env:
+          SKIP_WANDB_DOWNLOAD: true
+        run: |
+          pytest tests/ -v --cov=flaskr --cov-report=term-missing
+
+  docker:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Test Docker build
+        run: |
+          docker build -t mindsync-inference:test .
