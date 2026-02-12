@@ -33,11 +33,24 @@ These files are automatically downloaded and **can be overwritten**:
 preserve_files = ["healthy_cluster_avg.csv"]
 
 # Download flow:
-1. Download all files from W&B to temp location
-2. Copy to artifacts/ folder
+1. Download all files from W&B to versioned folder (e.g., mindsync-model-smart-v0/)
+2. Copy files to artifacts/ root folder
 3. Skip files in preserve_files if they already exist
-4. Result: healthy_cluster_avg.csv preserved ✅
+4. Clean up versioned folder (no longer needed)
+5. Result: healthy_cluster_avg.csv preserved ✅
 ```
+
+**Note**: Versioned folders like `artifacts/mindsync-model-smart-v0/` are automatically cleaned up after copying to prevent clutter and confusion. They are also excluded in `.gitignore` in case cleanup fails.
+
+### .gitignore Protection
+
+```gitignore
+# W&B versioned artifact folders (cleaned up after download)
+artifacts/mindsync-model-*/
+artifacts/*-v*/
+```
+
+This ensures W&B temporary folders never get committed to git.
 
 ### Function: `flaskr/model.py::download_artifacts_from_wandb()`
 
@@ -45,9 +58,11 @@ preserve_files = ["healthy_cluster_avg.csv"]
 # Protection flow:
 1. Check if healthy_cluster_avg.csv exists locally
 2. If exists, create backup: .csv.backup
-3. Download all files from W&B
-4. Restore backup over downloaded version
-5. Result: local healthy_cluster_avg.csv preserved ✅
+3. Download all files from W&B to versioned folder
+4. Copy .pkl files and non-preserved .csv files to artifacts/ root
+5. Clean up versioned folder
+6. Restore backup over downloaded version
+7. Result: local healthy_cluster_avg.csv preserved ✅
 ```
 
 ## 📋 Verification

@@ -79,6 +79,14 @@ def download_artifacts(output_dir="artifacts"):
         if files_skipped > 0:
             print(f"⏭️  Preserved {files_skipped} local files (not overwritten)")
         
+        # Clean up the versioned artifact directory (no longer needed)
+        if Path(artifact_dir).exists() and str(artifact_dir) != str(output_path):
+            try:
+                shutil.rmtree(artifact_dir)
+                print(f"🗑️  Cleaned up temporary download folder: {Path(artifact_dir).name}")
+            except Exception as e:
+                print(f"⚠️  Could not clean up {artifact_dir}: {e}")
+        
         # Display artifact metadata
         print("\n📊 Artifact metadata:")
         metadata = artifact.metadata

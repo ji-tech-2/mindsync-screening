@@ -68,6 +68,34 @@ def download_artifacts_from_wandb(artifacts_path):
         artifact = api.artifact(artifact_path, type="model")
         artifact_dir = artifact.download(root=artifacts_path)
 
+        # Copy files from versioned folder to root artifacts/ for easy access
+        from pathlib import Path
+
+        versioned_path = Path(artifact_dir)
+        artifacts_root = Path(artifacts_path)
+
+        # Files to preserve (don't overwrite if they exist locally)
+        preserve_files = ["healthy_cluster_avg.csv"]
+
+        if versioned_path != artifacts_root:
+            print(f"📂 Copying files from {versioned_path.name}/ to artifacts/...")
+            for file in versioned_path.glob("*.pkl"):
+                dest = artifacts_root / file.name
+                shutil.copy2(file, dest)
+                print(f"  ✓ {file.name}")
+            for file in versioned_path.glob("*.csv"):
+                if file.name not in preserve_files:
+                    dest = artifacts_root / file.name
+                    shutil.copy2(file, dest)
+                    print(f"  ✓ {file.name}")
+
+            # Clean up versioned folder
+            try:
+                shutil.rmtree(versioned_path)
+                print(f"🗑️  Cleaned up {versioned_path.name}/")
+            except Exception as e:
+                print(f"⚠️  Could not clean up {versioned_path}: {e}")
+
         # Restore local healthy_cluster_avg.csv if it was backed up
         if backup_path and os.path.exists(backup_path):
             shutil.move(backup_path, healthy_cluster_path)
