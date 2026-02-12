@@ -13,7 +13,7 @@ from pathlib import Path
 # Configuration
 WANDB_PROJECT = os.getenv("WANDB_PROJECT", "mindsync-model")
 WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)
-ARTIFACT_NAME = "mindsync-model"
+ARTIFACT_NAME = "mindsync-model-smart"  # Match training artifact name
 ARTIFACT_VERSION = os.getenv("ARTIFACT_VERSION", "latest")  # 'latest' or specific version like 'v0', 'v1'
 
 
