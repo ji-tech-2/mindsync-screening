@@ -1,0 +1,93 @@
+name: Deploy Inference
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      artifact_version:
+        description: 'Artifact version to deploy (latest or specific version)'
+        required: true
+        default: 'latest'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      
+      - name: Download latest artifacts from W&B
+        env:
+          WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+          WANDB_PROJECT: mindsync-model
+          WANDB_ENTITY: ${{ secrets.WANDB_ENTITY }}
+          ARTIFACT_VERSION: ${{ github.event.inputs.artifact_version || 'latest' }}
+          SKIP_WANDB_DOWNLOAD: false
+        run: |
+          echo "📥 Downloading latest model from W&B..."
+          python download_artifacts.py || echo "⚠️ W&B download failed, using local artifacts"
+      
+      - name: Run tests
+        env:
+          SKIP_WANDB_DOWNLOAD: true
+        run: |
+          pytest tests/ -v
+  
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Build Docker image
+        run: |
+          docker build -t mindsync-inference:${{ github.sha }} .
+          docker tag mindsync-inference:${{ github.sha }} mindsync-inference:latest
+      
+      - name: Log success
+        if: success()
+        run: |
+          echo "✅ Docker image built successfully"
+          echo "Image: mindsync-inference:${{ github.sha }}"
+          echo "Tagged as: mindsync-inference:latest"
+      
+      # Uncomment and configure based on your deployment target
+      # - name: Push to Docker Hub
+      #   if: success()
+      #   run: |
+      #     echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+      #     docker push mindsync-inference:latest
+      
+      # - name: Deploy to Cloud Run
+      #   if: success()
+      #   run: |
+      #     gcloud auth configure-docker
+      #     docker tag mindsync-inference:latest gcr.io/${{ secrets.GCP_PROJECT }}/mindsync-inference:latest
+      #     docker push gcr.io/${{ secrets.GCP_PROJECT }}/mindsync-inference:latest
+      #     gcloud run deploy mindsync-inference --image gcr.io/${{ secrets.GCP_PROJECT }}/mindsync-inference:latest
+      
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "### Deployment Summary 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact Version**: ${{ github.event.inputs.artifact_version || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Image**: mindsync-inference:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tests Passed**: ✅" >> $GITHUB_STEP_SUMMARY

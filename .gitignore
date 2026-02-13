@@ -15,6 +15,10 @@ env/
 *.pt
 *.pth
 
+# W&B versioned artifact folders (cleaned up after download)
+artifacts/mindsync-model-*/
+artifacts/*-v*/
+
 # --- Jupyter Notebooks ---
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
