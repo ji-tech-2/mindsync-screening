@@ -45,6 +45,8 @@ jobs:
               --restart unless-stopped \
               -p ${{ env.HOST_PORT }}:${{ env.APP_PORT }} \
               -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e WANDB_API_KEY="${{ secrets.WANDB_API_KEY }}" \
+              -e WANDB_ENTITY="${{ secrets.WANDB_ENTITY }}" \
               -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
               -e VALKEY_URL="${{ secrets.VALKEY_URL }}" \
               ${{ env.IMAGE_NAME }}:latest
