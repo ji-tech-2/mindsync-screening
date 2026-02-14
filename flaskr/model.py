@@ -23,10 +23,10 @@ healthy_cluster_df = None
 coefficients_df = None
 
 # Version tracking
-_current_version = None        # W&B artifact digest of the loaded version
-_artifacts_path = None         # Path to artifacts directory
-_flask_app = None              # Flask app reference for background thread
-_version_check_timer = None    # Background timer reference
+_current_version = None  # W&B artifact digest of the loaded version
+_artifacts_path = None  # Path to artifacts directory
+_flask_app = None  # Flask app reference for background thread
+_version_check_timer = None  # Background timer reference
 _VERSION_CHECK_INTERVAL = 300  # Check every 5 minutes (seconds)
 
 
@@ -176,20 +176,24 @@ def _validate_model(loaded):
     try:
         test_model = loaded["model"]
         # Build a single-row DataFrame with the columns the pipeline expects
-        test_data = pd.DataFrame([{
-            "age": 25,
-            "gender": "Male",
-            "occupation": "Student",
-            "sleep_hours": 7.0,
-            "sleep_quality_1_5": 3,
-            "exercise_minutes_per_week": 150,
-            "social_hours_per_week": 10,
-            "stress_level_0_10": 5,
-            "work_screen_hours": 4,
-            "leisure_screen_hours": 3,
-            "productivity_0_100": 60,
-            "work_mode": "Hybrid",
-        }])
+        test_data = pd.DataFrame(
+            [
+                {
+                    "age": 25,
+                    "gender": "Male",
+                    "occupation": "Student",
+                    "sleep_hours": 7.0,
+                    "sleep_quality_1_5": 3,
+                    "exercise_minutes_per_week": 150,
+                    "social_hours_per_week": 10,
+                    "stress_level_0_10": 5,
+                    "work_screen_hours": 4,
+                    "leisure_screen_hours": 3,
+                    "productivity_0_100": 60,
+                    "work_mode": "Hybrid",
+                }
+            ]
+        )
         prediction = test_model.predict(test_data)
         if prediction is None or len(prediction) == 0:
             return False
@@ -261,9 +265,7 @@ def _get_latest_wandb_version(artifacts_path):
 
         api = wandb.Api()
         if wandb_entity:
-            artifact_path = (
-                f"{wandb_entity}/{wandb_project}/{artifact_name}:latest"
-            )
+            artifact_path = f"{wandb_entity}/{wandb_project}/{artifact_name}:latest"
         else:
             artifact_path = f"{wandb_project}/{artifact_name}:latest"
 
@@ -329,9 +331,7 @@ def _check_for_updates():
             return
 
         if latest_digest == _current_version:
-            logger.info(
-                f"Model is up to date (version: {_current_version[:8]}...)"
-            )
+            logger.info(f"Model is up to date (version: {_current_version[:8]}...)")
             return
 
         logger.info(
@@ -358,9 +358,7 @@ def _check_for_updates():
 
         # Validate the new model
         if not _validate_model(loaded):
-            logger.error(
-                "New model failed validation, reverting to previous version"
-            )
+            logger.error("New model failed validation, reverting to previous version")
             _restore_artifacts(_artifacts_path)
             # Reload the restored artifacts
             try:
@@ -373,9 +371,7 @@ def _check_for_updates():
         # New model is valid — hot-swap
         _apply_loaded_artifacts(loaded)
         _current_version = latest_digest
-        logger.info(
-            f"Model updated successfully to version {latest_digest[:8]}..."
-        )
+        logger.info(f"Model updated successfully to version {latest_digest[:8]}...")
 
     except Exception as e:
         logger.error(f"Unexpected error during update check: {e}")
@@ -392,14 +388,10 @@ def _schedule_version_check():
     if _version_check_timer is not None:
         _version_check_timer.cancel()
 
-    _version_check_timer = threading.Timer(
-        _VERSION_CHECK_INTERVAL, _check_for_updates
-    )
+    _version_check_timer = threading.Timer(_VERSION_CHECK_INTERVAL, _check_for_updates)
     _version_check_timer.daemon = True
     _version_check_timer.start()
-    logger.debug(
-        f"Next version check in {_VERSION_CHECK_INTERVAL // 60} minutes"
-    )
+    logger.debug(f"Next version check in {_VERSION_CHECK_INTERVAL // 60} minutes")
 
 
 # ===================== #
