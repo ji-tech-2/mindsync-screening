@@ -1,14 +1,16 @@
-# --- 1. Version Control (Fixes space typo) ---
+# --- 1. Version Control ---
 .git
 .gitignore
 
 # --- 2. Docker Metadata ---
 .dockerignore
 Dockerfile
+docker-compose.yml
 
 # --- 3. Secrets & Env (CRITICAL) ---
-# You had a space in ". env". Fix this to prevent leaking secrets!
 .env
+.env.*
+!.env.example
 .venv
 venv/
 
@@ -25,15 +27,23 @@ build/
 .coverage
 htmlcov/
 
-# --- 5. Data Science Junk (NEW) ---
-# You don't want these in production:
+# --- 5. Development & Testing ---
+notebook/
 *.ipynb
-*.csv
-*.xlsx
-*.json
-# (Be careful not to ignore your model files, usually .pkl)
+test_predict.py
+test-local.ps1
 
 # --- 6. System & IDE Files ---
 .DS_Store
 .vscode/
 .idea/
+
+# --- 7. Documentation (optional) ---
+*.md
+!README.md
+
+# --- 8. CI/CD Files ---
+.github/
+
+# Note: Artifacts folder (artifacts/) IS included in the image
+# CSV files in artifacts/ are explicitly copied in Dockerfile

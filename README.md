@@ -69,6 +69,7 @@ Build Docker image ✅
 ```
 
 **Triggers**:
+
 - `push` to `main` branch
 - `workflow_dispatch` - Manual trigger with version option
 
@@ -181,25 +182,30 @@ python download_artifacts.py
 
 ### 4. Install & Run
 
-**Option A: Using PowerShell Script (Recommended)**
-```powershell
-.\run.ps1
-```
+**Option A: Development Mode (Flask Dev Server)**
 
-**Option B: Manual Installation**
 ```bash
-# Install in development mode
-pip install -e .
-
-# Run application
-python wsgi.py
-```
-
-**Option C: Flask Development Server**
-```bash
-set FLASK_APP=wsgi.py
+# Set environment variables
+set FLASK_APP=wsgi:app
 set FLASK_DEBUG=True
-flask run
+flask run --host=0.0.0.0 --port=5000
+```
+
+**Option B: Production Mode (Gunicorn)**
+
+```bash
+# Run with gunicorn using configuration file
+gunicorn --config gunicorn_config.py wsgi:app
+
+# Or with custom settings
+gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 wsgi:app
+```
+
+**Option C: Manual Testing**
+
+```bash
+# Quick test with flask dev server
+python -m flask --app wsgi:app run
 ```
 
 ## 🐳 Docker Deployment
@@ -241,6 +247,7 @@ Service ini memiliki GitHub Actions workflow sendiri di `.github/workflows/`:
 - **test.yml** - Automated testing untuk PR dan commits
 
 Setup secrets di repository:
+
 - `WANDB_API_KEY`
 - `WANDB_ENTITY`
 - `GEMINI_API_KEY`
@@ -248,12 +255,14 @@ Setup secrets di repository:
 ## 📡 API Endpoints
 
 ### Health Check
+
 ```
 GET /
 Response: {"status": "active", "message": "MindSync Model API is running."}
 ```
 
 ### Predict Mental Health Score
+
 ```
 POST /predict
 Content-Type: application/json
@@ -280,6 +289,7 @@ Response: 202 Accepted
 ```
 
 ### Get Prediction Result
+
 ```
 GET /result/<prediction_id>
 
@@ -303,7 +313,8 @@ Response: 200 OK (when ready)
 }
 ```
 
-### Get User Streak 
+### Get User Streak
+
 ```
 GET /streak/<user_id>
 
@@ -325,6 +336,7 @@ Response: 200 OK
 ```
 
 ### Get User History
+
 ```
 GET /history/<user_id>
 
@@ -361,6 +373,7 @@ Response: 200 OK
 ```
 
 ### Get Weekly Chart
+
 ```
 GET /chart/weekly?user_id=<user_id>
 
@@ -401,11 +414,13 @@ Response: 200 OK
 ## 🏗️ Architecture
 
 ### Application Factory Pattern
+
 - Menggunakan `create_app()` factory function
-- Modular blueprint-based routing  
+- Modular blueprint-based routing
 - Easy testing dan multiple configurations
 
 ### Components
+
 - **DB Layer** (`db.py`): PostgreSQL models dengan SQLAlchemy
 - **Model Layer** (`model.py`): Custom Ridge Regression + preprocessing
 - **Cache Layer** (`cache.py`): Valkey/Redis untuk caching hasil
@@ -413,6 +428,7 @@ Response: 200 OK
 - **Routes** (`predict.py`): Blueprint untuk API endpoints
 
 ### Background Processing
+
 - Threading untuk async prediction processing
 - Status tracking: `processing` → `partial` → `ready`
 - Fallback ke database jika cache tidak tersedia
@@ -421,17 +437,21 @@ Response: 200 OK
 
 ### Manual API Testing
 
-Gunakan script `test_api_manual.py` untuk menguji API secara manual:
+Gunakan script `test_predict.py` untuk menguji API secara manual:
 
 ```bash
-# Pastikan server sudah berjalan di terminal lain
-python wsgi.py
+# Pastikan server sudah berjalan di terminal lain (production mode)
+gunicorn --config gunicorn_config.py wsgi:app
+
+# Atau dengan Flask dev server
+flask --app wsgi:app run
 
 # Di terminal baru, jalankan test script
-python test_api_manual.py
+python test_predict.py
 ```
 
 Script ini akan:
+
 1. Mengirim prediction request ke `/predict`
 2. Polling `/result/<prediction_id>` sampai selesai
 3. Menampilkan hasil prediksi dan AI advice
@@ -471,30 +491,56 @@ docker run -p 5000:5000 --env-file .env mindsync-api
 ## 🔧 Development Guide
 
 ### Adding New Routes
+
 1. Buat blueprint baru di `flaskr/`
 2. Register blueprint di `flaskr/__init__.py`
 
 ### Adding Tests
+
 1. Tambahkan test file di `tests/`
 2. Follow naming convention `test_*.py`
-
-### Migration dari app.py lama
-File `app.py` lama masih ada untuk referensi. Struktur baru menggunakan:
-- `wsgi.py` sebagai entry point
-- `flaskr/` package untuk semua logic
 
 ## 📦 Main Dependencies
 
 - Flask 3.1.2 - Web framework
 - pandas 2.2.3 - Data processing
-- numpy 1.26.4 - Numerical computing  
+- numpy 1.26.4 - Numerical computing
 - scikit-learn 1.5.2 - Machine learning
 - google-genai 1.57.0 - AI integration
 - Flask-SQLAlchemy 3.1.1 - Database ORM
 - valkey 6.1.1 - Caching
 - psycopg2-binary 2.9.11 - PostgreSQL driver
+- gunicorn 23.0.0 - Production WSGI server
 
-See [pyproject.toml](pyproject.toml) for complete list.
+See [requirements.txt](requirements.txt) for complete list.
+
+## 🚀 Production Deployment
+
+### Gunicorn Configuration
+
+The application includes a production-ready Gunicorn configuration in `gunicorn_config.py`:
+
+- **Workers**: Auto-calculated based on CPU cores (2 × cores + 1)
+- **Timeout**: 120 seconds (suitable for ML inference)
+- **Binding**: 0.0.0.0:5000 (configurable via PORT env var)
+- **Logging**: JSON-formatted logs to stdout/stderr
+- **Health checks**: Built-in monitoring hooks
+- **Graceful restarts**: Zero-downtime deployments
+
+### Environment Variables
+
+```bash
+# Server Configuration
+PORT=5000                    # Server port (default: 5000)
+GUNICORN_WORKERS=4           # Number of worker processes
+LOG_LEVEL=info               # Logging level
+
+# Application Configuration
+GEMINI_API_KEY=xxx           # Required for AI features
+DATABASE_URL=postgresql://   # Optional database
+VALKEY_URL=redis://          # Optional cache
+WANDB_API_KEY=xxx            # For artifact downloads
+```
 
 ## 🤝 Contributing
 
@@ -511,24 +557,44 @@ This project is part of MindSync application.
 ---
 
 **Need Help?** Check the issues or create a new one!
-- google-genai 1.57.0
-- python-dotenv 1.2.1
 
-See `requirements.txt` for complete list.
-
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Module Import Errors
+
 Ensure you're using the virtual environment's Python:
+
 ```bash
-& ".venv/Scripts/python.exe" app.py
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# Linux/Mac
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ### API Key Missing
-Check that `.env` file exists and contains valid `GEMINI_API_KEY`.
+
+Check that `.env` file exists and contains valid `GEMINI_API_KEY` and `WANDB_API_KEY`.
 
 ### Port Already in Use
-If port 5000 is busy, modify the port in `app.py`:
-```python
-app.run(debug=True, host='0.0.0.0', port=5001)
+
+Change the port using environment variable:
+
+```bash
+# Windows
+set PORT=5001
+gunicorn --config gunicorn_config.py wsgi:app
+
+# Linux/Mac
+PORT=5001 gunicorn --config gunicorn_config.py wsgi:app
+```
+
+### Gunicorn Worker Timeout
+
+If predictions take too long, increase the timeout:
+
+```bash
+gunicorn --config gunicorn_config.py --timeout 300 wsgi:app
 ```
