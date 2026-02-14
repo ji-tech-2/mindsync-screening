@@ -4,6 +4,7 @@ Prediction routes and business logic
 
 import uuid
 import threading
+import logging
 import pandas as pd
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
@@ -24,6 +25,8 @@ from .db import (
     is_valid_uuid,
 )
 
+logger = logging.getLogger(__name__)
+
 # Constants
 FACTOR_TYPE_IMPROVEMENT = "improvement"
 FACTOR_TYPE_STRENGTH = "strengths"
@@ -38,14 +41,19 @@ bp = Blueprint("predict", __name__, url_prefix="/")
 @bp.route("/predict", methods=["POST"])
 def predict():
     """Main prediction endpoint - returns prediction_id immediately."""
+    logger.info("Received POST request to /predict")
+    
     if model.model is None:
+        logger.error("Model not loaded - cannot process prediction")
         return jsonify({"error": "Model failed to load. Check server logs."}), 500
 
     # Check if at least one storage backend is available
     db_enabled = not current_app.config.get("DB_DISABLED", False)
     cache_available = cache.is_available()
+    logger.debug(f"Storage backends - DB: {db_enabled}, Cache: {cache_available}")
 
     if not db_enabled and not cache_available:
+        logger.error("No storage backend available for predictions")
         return (
             jsonify(
                 {
@@ -61,10 +69,12 @@ def predict():
 
     try:
         json_input = request.get_json()
+        logger.debug(f"Received prediction input with keys: {list(json_input.keys()) if json_input else 'None'}")
 
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
         created_at = datetime.now().isoformat()
+        logger.info(f"Created prediction request with ID: {prediction_id}")
 
         # Initialize status as processing
         cache.store_prediction(
@@ -75,8 +85,10 @@ def predict():
                 "created_at": created_at,
             },
         )
+        logger.debug(f"Initial status stored in cache for {prediction_id}")
 
         # Start background processing
+        logger.info(f"Starting background processing thread for {prediction_id}")
         thread = threading.Thread(
             target=process_prediction,
             args=(
@@ -88,6 +100,7 @@ def predict():
         )
         thread.daemon = True
         thread.start()
+        logger.debug(f"Background thread started for {prediction_id}")
 
         return (
             jsonify(
@@ -104,15 +117,18 @@ def predict():
         )
 
     except Exception as e:
+        logger.error(f"Error processing prediction request: {e}", exc_info=True)
         return jsonify({"error": str(e), "status": "error"}), 400
 
 
 @bp.route("/result/<prediction_id>", methods=["GET"])
 def get_result(prediction_id):
     """Check prediction status and get results."""
+    logger.info(f"Received GET request to /result/{prediction_id}")
 
     # Validate UUID
     if not is_valid_uuid(prediction_id):
+        logger.warning(f"Invalid UUID format provided: {prediction_id}")
         return (
             jsonify(
                 {
@@ -124,12 +140,15 @@ def get_result(prediction_id):
         )
 
     # Check cache first
+    logger.debug(f"Checking cache for prediction {prediction_id}")
     prediction_data = cache.fetch_prediction(prediction_id)
 
     if prediction_data:
         status = prediction_data["status"]
+        logger.debug(f"Cache hit for {prediction_id} with status: {status}")
 
         if status == "processing":
+            logger.debug(f"Prediction {prediction_id} still processing")
             return (
                 jsonify(
                     {
@@ -144,6 +163,7 @@ def get_result(prediction_id):
             )
 
         elif status == "partial":
+            logger.info(f"Returning partial result for {prediction_id}")
             return (
                 jsonify(
                     {
@@ -157,6 +177,7 @@ def get_result(prediction_id):
             )
 
         elif status == "ready":
+            logger.info(f"Returning complete result for {prediction_id}")
             return (
                 jsonify(
                     {
@@ -170,6 +191,7 @@ def get_result(prediction_id):
             )
 
         elif status == "error":
+            logger.error(f"Prediction {prediction_id} encountered an error: {prediction_data.get('error')}")
             return (
                 jsonify(
                     {
@@ -184,6 +206,7 @@ def get_result(prediction_id):
 
     # Fallback to database if enabled
     if current_app.config.get("DB_DISABLED", False):
+        logger.warning(f"Prediction {prediction_id} not found in cache and DB is disabled")
         return (
             jsonify(
                 {
@@ -194,9 +217,11 @@ def get_result(prediction_id):
             404,
         )
 
+    logger.debug(f"Cache miss for {prediction_id}, checking database")
     db_result = read_from_db(prediction_id=prediction_id)
 
     if db_result.get("status") == "success":
+        logger.info(f"Found prediction {prediction_id} in database")
         data = db_result["data"]
         return (
             jsonify(
@@ -211,14 +236,17 @@ def get_result(prediction_id):
             200,
         )
 
+    logger.warning(f"Prediction {prediction_id} not found in cache or database")
     return jsonify(db_result), 404
 
 
 @bp.route("/advice", methods=["POST"])
 def advice():
     """Generate AI advice (for testing/manual calls)."""
+    logger.info("Received POST request to /advice")
     try:
         json_input = request.get_json()
+        logger.debug(f"Advice request input keys: {list(json_input.keys()) if json_input else 'None'}")
 
         prediction_score = json_input.get("prediction_score")
         if prediction_score is None:
@@ -232,6 +260,7 @@ def advice():
         analysis = json_input.get("wellness_analysis")
 
         if prediction_score is None or category is None or analysis is None:
+            logger.warning("Missing required inputs for advice generation")
             return (
                 jsonify(
                     {"error": "Missing inputs from /predict result", "status": "error"}
@@ -239,20 +268,25 @@ def advice():
                 400,
             )
 
+        logger.info(f"Generating advice for score: {prediction_score}, category: {category}")
         api_key = current_app.config.get("GEMINI_API_KEY")
         ai_advice = ai.get_ai_advice(prediction_score, category, analysis, api_key)
 
+        logger.info("Advice generated successfully")
         return jsonify({"ai_advice": ai_advice, "status": "success"})
 
     except Exception as e:
+        logger.error(f"Error in advice endpoint: {e}", exc_info=True)
         return jsonify({"error": str(e), "status": "error"}), 400
 
 
 @bp.route("/streak/<user_id>", methods=["GET"])
 def get_streak(user_id):
     """Get current streak status (Daily & Weekly) for a user."""
+    logger.info(f"Received GET request to /streak/{user_id}")
 
     if current_app.config.get("DB_DISABLED", False):
+        logger.warning("Streak request rejected - database disabled")
         return (
             jsonify(
                 {
@@ -264,18 +298,22 @@ def get_streak(user_id):
         )
 
     if not is_valid_uuid(user_id):
+        logger.warning(f"Invalid user_id format in streak request: {user_id}")
         return (
             jsonify({"error": "Invalid user_id format. Must be a valid UUID string."}),
             400,
         )
 
     try:
+        logger.debug(f"Querying streak data for user {user_id}")
         # Use existing database session
         streak_record = UserStreaks.query.get(uuid.UUID(user_id))
 
         if streak_record:
+            logger.info(f"Streak data found for user {user_id}")
             return jsonify({"status": "success", "data": streak_record.to_dict()}), 200
         else:
+            logger.info(f"No streak record found for user {user_id}, returning defaults")
             # If no record exists, return default 0 values (User hasn't started yet)
             return (
                 jsonify(
@@ -292,12 +330,14 @@ def get_streak(user_id):
             )
 
     except Exception as e:
+        logger.error(f"Error retrieving streak for user {user_id}: {e}", exc_info=True)
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
 @bp.route("/history/<user_id>", methods=["GET"])
 def get_history(user_id):
     """Get full history of predictions for a user."""
+    logger.info(f"Received GET request to /history/{user_id}")
 
     # Check DB Status
     if current_app.config.get("DB_DISABLED", False):
@@ -907,6 +947,7 @@ def format_db_output(data):
 
 def process_prediction(prediction_id, json_input, created_at, app):
     """Background task for processing prediction."""
+    logger.info(f"Background processing started for prediction {prediction_id}")
     try:
         with app.app_context():
             # Convert input to DataFrame
@@ -914,23 +955,29 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 df = pd.DataFrame([json_input])
             else:
                 df = pd.DataFrame(json_input)
+            logger.debug(f"Input converted to DataFrame with shape {df.shape}")
 
             # Fast part: Prediction & Analysis
+            logger.info(f"Running model prediction for {prediction_id}")
             prediction = model.model.predict(df)
             prediction_score = float(prediction[0])
+            logger.info(f"Prediction score for {prediction_id}: {prediction_score:.2f}")
 
+            logger.debug(f"Analyzing wellness factors for {prediction_id}")
             wellness_analysis = model.analyze_wellness_factors(df)
             if not wellness_analysis:
-                print(
-                    f"❌ Wellness analysis failed for {prediction_id}. Using fallback."
-                )
+                logger.warning(f"Wellness analysis failed for {prediction_id}, using fallback")
                 wellness_analysis = {"areas_for_improvement": [], "strengths": []}
+            else:
+                logger.debug(f"Wellness analysis complete for {prediction_id}")
 
             mental_health_category = model.categorize_mental_health_score(
                 prediction_score
             )
+            logger.info(f"Mental health category for {prediction_id}: {mental_health_category}")
 
             # Store partial result
+            logger.debug(f"Storing partial result for {prediction_id}")
             cache.store_prediction(
                 prediction_id,
                 {
@@ -946,26 +993,27 @@ def process_prediction(prediction_id, json_input, created_at, app):
                     ),
                 },
             )
-            print(f"📊 Partial result ready for {prediction_id}")
+            logger.info(f"Partial result stored and ready for {prediction_id}")
 
             # Slow part: Gemini AI
+            logger.info(f"Requesting AI advice for {prediction_id}")
             api_key = current_app.config.get("GEMINI_API_KEY")
             ai_advice = ai.get_ai_advice(
                 prediction_score, mental_health_category, wellness_analysis, api_key
             )
 
             if not ai_advice or not isinstance(ai_advice, dict):
-                print(
-                    f"⚠️ AI advice generation failed for {prediction_id}. "
-                    "Using fallback."
-                )
+                logger.warning(f"AI advice generation failed for {prediction_id}, using fallback")
                 ai_advice = {
                     "factors": {},
                     "description": "AI advice could not be generated at this time.",
                 }
+            else:
+                logger.info(f"AI advice generated successfully for {prediction_id}")
 
             if not current_app.config.get("DB_DISABLED", False):
                 try:
+                    logger.debug(f"Saving prediction {prediction_id} to database")
                     save_to_db(
                         prediction_id,
                         json_input,
@@ -973,10 +1021,12 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         wellness_analysis,
                         ai_advice,
                     )
+                    logger.info(f"Prediction {prediction_id} saved to database successfully")
                 except Exception as db_error:
-                    print(f"⚠️ Failed to save to database: {db_error}")
+                    logger.error(f"Failed to save prediction {prediction_id} to database: {db_error}", exc_info=True)
 
             # Update with full result
+            logger.debug(f"Updating cache with final result for {prediction_id}")
             cache.update_prediction(
                 prediction_id,
                 {
@@ -990,8 +1040,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
                     "completed_at": datetime.now().isoformat(),
                 },
             )
+            logger.info(f"Prediction {prediction_id} fully processed and ready")
 
     except Exception as e:
+        logger.error(f"Error processing prediction {prediction_id}: {e}", exc_info=True)
         cache.update_prediction(prediction_id, {"status": "error", "error": str(e)})
 
 
@@ -1004,11 +1056,11 @@ def save_to_db(
     streak failed.
     """
     if current_app.config.get("DB_DISABLED", False):
-        print("ℹ️ DB disabled, skipping save_to_db.")
+        logger.debug("DB disabled, skipping save_to_db")
         return
 
     with current_app.app_context():
-        print(f"🔄 [DB] Saving data for ID: {prediction_id}...")
+        logger.info(f"Saving prediction {prediction_id} to database")
 
         ai_desc_text = None
         if isinstance(ai_advice, dict):
@@ -1017,6 +1069,7 @@ def save_to_db(
         u_id = (
             uuid.UUID(json_input.get("user_id")) if json_input.get("user_id") else None
         )
+        logger.debug(f"Creating prediction record for user_id: {u_id}")
 
         new_pred = Predictions(
             pred_id=uuid.UUID(prediction_id),
@@ -1035,11 +1088,13 @@ def save_to_db(
         )
         db.session.add(new_pred)
         db.session.flush()
+        logger.debug(f"Prediction record created with ID: {prediction_id}")
 
         # Save details
         def save_detail_list(items, category_label):
             if not items:
                 return
+            logger.debug(f"Saving {len(items)} {category_label} detail records")
             for item in items:
                 fname = item["feature"]
                 detail = PredDetails(
@@ -1080,10 +1135,12 @@ def save_to_db(
             wellness_analysis.get("areas_for_improvement", []), FACTOR_TYPE_IMPROVEMENT
         )
         save_detail_list(wellness_analysis.get("strengths", []), FACTOR_TYPE_STRENGTH)
+        logger.debug("Wellness factor details saved to database")
 
         # Update user streaks if user_id provided
         if u_id:
             try:
+                logger.debug(f"Updating streak data for user {u_id}")
                 client_date_str = json_input.get("local_date")
 
                 if client_date_str:
