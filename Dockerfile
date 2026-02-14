@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 5. Copy Code and Artifacts
 COPY artifacts/ ./artifacts/
 COPY wsgi.py .
+COPY custom_ridge.py .
 COPY flaskr/ ./flaskr/
 
 # Test Stage
