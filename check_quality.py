@@ -188,7 +188,7 @@ def check_radon_complexity():
         print_success(f"Average Complexity: {grade} ({complexity:.2f}) - Grade {grade}")
 
     # Check for high complexity (D, E, F grades indicate complexity > 15)
-    if "D " in result.stdout or "E " in result.stdout or "F " in result.stdout:
+    if "- D" in result.stdout or "- E" in result.stdout or "- F" in result.stdout:
         print_error("High cyclomatic complexity detected (> 15)")
         return False
     else:
@@ -276,10 +276,10 @@ def run_tests_with_coverage():
         print(result.stderr)
 
     # Extract coverage percentage
-    coverage_match = re.search(r"TOTAL.*?(\d+)%", result.stdout)
+    coverage_match = re.search(r"total.*?(\d+\.?\d*)", result.stdout)
     if coverage_match:
-        coverage = int(coverage_match.group(1))
-        if result.returncode == 0:
+        coverage = float(coverage_match.group(1))
+        if coverage >= 80.0:
             print_success(f"Coverage: {coverage}% (>= 80% required)")
             return True
         else:

@@ -42,3 +42,8 @@ test-local.ps1
 
 # --- Docker Local Setup ---
 docker-compose.yml
+
+# --- Testing Results ---
+coverage.xml
+.coverage
+bandit_report.json

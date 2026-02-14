@@ -4,9 +4,8 @@ Unit tests for predict.py endpoints and processing functions
 
 import uuid
 import pytest
-import pandas as pd
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from datetime import datetime
+from unittest.mock import patch, MagicMock
 from flask import Flask
 
 

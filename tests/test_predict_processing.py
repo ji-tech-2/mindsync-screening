@@ -4,8 +4,7 @@ Unit tests for predict.py processing and database functions
 
 import uuid
 import pytest
-import pandas as pd
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
 from unittest.mock import Mock, patch, MagicMock
 from flask import Flask
 

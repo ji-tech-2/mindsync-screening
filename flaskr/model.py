@@ -6,7 +6,7 @@ Custom Ridge Regression Implementation
 import os
 import sys
 import shutil
-import pickle
+import pickle  # nosec B403 - Pickle used for trusted ML model files only
 import logging
 import threading
 import pandas as pd
@@ -303,8 +303,8 @@ def _download_wandb_artifact(artifact, artifacts_path):
                     shutil.copy2(file, artifacts_root / file.name)
             try:
                 shutil.rmtree(versioned_path)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to remove versioned path {versioned_path}: {e}")
 
         return True
     except Exception as e:
