@@ -20,6 +20,3 @@ radon==6.0.1
 
 # Security scanning
 bandit==1.8.0
-
-# Code duplication detection
-pylint-duplicate-code==0.1.1
