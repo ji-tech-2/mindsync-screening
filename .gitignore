@@ -25,7 +25,7 @@ artifacts/*-v*/
 
 # --- Environment & Secrets ---
 .env
-.env.local
+.env*
 
 # --- IDE Settings ---
 .vscode/
@@ -38,6 +38,7 @@ Thumbs.db
 # --- Testing Files ---
 /test_*.py
 /test_*.html
+test-local.ps1
 
 # --- Docker Local Setup ---
 docker-compose.yml
