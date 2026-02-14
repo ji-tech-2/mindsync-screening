@@ -7,8 +7,8 @@ on:
       - develop
 
 jobs:
-  quality-check:
-    name: Quality & Security Check
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
