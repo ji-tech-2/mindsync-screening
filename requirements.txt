@@ -26,7 +26,11 @@ python-dateutil==2.9.0.post0
 pytz==2025.2
 certifi==2025.8.3
 urllib3==2.5.0
-waitress>=3.0
+
+# --- Production WSGI Server ---
+gunicorn==23.0.0
+
+# --- Database & Cache ---
 valkey==6.1.1
 Flask-SQLAlchemy==3.1.1
 psycopg2-binary==2.9.11

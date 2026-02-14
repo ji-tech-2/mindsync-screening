@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 5. Copy Code and Artifacts
 COPY artifacts/ ./artifacts/
 COPY wsgi.py .
+COPY gunicorn_config.py .
 COPY flaskr/ ./flaskr/
 
 # Test Stage
@@ -42,12 +43,16 @@ RUN pytest tests/ -v --tb=short
 FROM base
 
 # 6. Security: Run as non-root user
-RUN useradd -m modeluser
+RUN useradd -m -u 1000 modeluser && \
+    chown -R modeluser:modeluser /app
 USER modeluser
 
-# 7. Expose Port 5000 (Matches your app.py)
+# 7. Expose Port 5000 (Matches your app)
 EXPOSE 5000
 
-# 8. Run Command
-# We force Gunicorn to bind to 5000 to match your expectations
-CMD ["python", "wsgi.py"]
+# 8. Health Check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:5000/', timeout=5)"
+
+# 9. Run with Gunicorn
+CMD ["gunicorn", "--config", "gunicorn_config.py", "wsgi:app"]

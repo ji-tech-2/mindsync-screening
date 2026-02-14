@@ -6,10 +6,13 @@ Custom Ridge Regression Implementation
 import os
 import sys
 import pickle
+import logging
 import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.preprocessing import StandardScaler
+
+logger = logging.getLogger(__name__)
 
 # Global variables for model components
 model = None
@@ -24,13 +27,14 @@ def download_artifacts_from_wandb(artifacts_path):
 
     Returns True if successful or if artifacts already exist locally.
     """
+    logger.info("Starting W&B artifact download process")
     try:
         import wandb
 
         # Check if we should skip W&B download
         skip_wandb = os.getenv("SKIP_WANDB_DOWNLOAD", "false").lower() == "true"
         if skip_wandb:
-            print("⏭️ Skipping W&B download (SKIP_WANDB_DOWNLOAD=true)")
+            logger.info("Skipping W&B download (SKIP_WANDB_DOWNLOAD=true)")
             return True
 
         # Configuration from environment
@@ -39,7 +43,10 @@ def download_artifacts_from_wandb(artifacts_path):
         artifact_name = "mindsync-model-smart"  # Match training artifact name
         artifact_version = os.getenv("ARTIFACT_VERSION", "latest")
 
-        print("☁️ Attempting to download artifacts from Weights & Biases...")
+        logger.info(
+            f"W&B Configuration: project={wandb_project},"
+            f"entity={wandb_entity}, version={artifact_version}"
+        )
 
         # Initialize W&B API
         api = wandb.Api()
@@ -52,7 +59,7 @@ def download_artifacts_from_wandb(artifacts_path):
         else:
             artifact_path = f"{wandb_project}/{artifact_name}:{artifact_version}"
 
-        print(f"📦 Fetching artifact: {artifact_path}")
+        logger.info(f"Fetching W&B artifact: {artifact_path}")
 
         # Check if healthy_cluster_avg.csv exists locally (should be preserved)
         healthy_cluster_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
@@ -62,11 +69,12 @@ def download_artifacts_from_wandb(artifacts_path):
             import shutil
 
             shutil.copy2(healthy_cluster_path, backup_path)
-            print("💾 Backed up local healthy_cluster_avg.csv")
+            logger.info("Backed up local healthy_cluster_avg.csv")
 
         # Download artifact
         artifact = api.artifact(artifact_path, type="model")
         artifact_dir = artifact.download(root=artifacts_path)
+        logger.info(f"Artifacts downloaded to: {artifact_dir}")
 
         # Copy files from versioned folder to root artifacts/ for easy access
         from pathlib import Path
@@ -78,41 +86,39 @@ def download_artifacts_from_wandb(artifacts_path):
         preserve_files = ["healthy_cluster_avg.csv"]
 
         if versioned_path != artifacts_root:
-            print(f"📂 Copying files from {versioned_path.name}/ to artifacts/...")
+            logger.info(f"Copying files from {versioned_path.name}/ to artifacts/...")
             for file in versioned_path.glob("*.pkl"):
                 dest = artifacts_root / file.name
                 shutil.copy2(file, dest)
-                print(f"  ✓ {file.name}")
+                logger.debug(f"Copied {file.name}")
             for file in versioned_path.glob("*.csv"):
                 if file.name not in preserve_files:
                     dest = artifacts_root / file.name
                     shutil.copy2(file, dest)
-                    print(f"  ✓ {file.name}")
+                    logger.debug(f"Copied {file.name}")
 
             # Clean up versioned folder
             try:
                 shutil.rmtree(versioned_path)
-                print(f"🗑️  Cleaned up {versioned_path.name}/")
+                logger.info(f"Cleaned up versioned folder: {versioned_path.name}/")
             except Exception as e:
-                print(f"⚠️  Could not clean up {versioned_path}: {e}")
+                logger.warning(f"Could not clean up {versioned_path}: {e}")
 
         # Restore local healthy_cluster_avg.csv if it was backed up
         if backup_path and os.path.exists(backup_path):
             shutil.move(backup_path, healthy_cluster_path)
-            print(
-                "✅ Restored local healthy_cluster_avg.csv (not overwritten from W&B)"
-            )
+            logger.info("Restored local healthy_cluster_avg.csv (not overwritten)")
 
-        print(f"✅ Artifacts downloaded from W&B to: {artifact_dir}")
+        logger.info(f"W&B artifacts successfully downloaded to: {artifact_dir}")
         return True
 
     except ImportError:
-        print("⚠️ wandb not installed, skipping W&B download")
+        logger.warning("wandb module not installed, skipping W&B download")
         return True
 
     except Exception as e:
-        print(f"⚠️ Could not download from W&B: {e}")
-        print("   Will attempt to use local artifacts if available")
+        logger.error(f"Failed to download from W&B: {e}")
+        logger.info("Will attempt to use local artifacts if available")
         return True
 
 
@@ -120,52 +126,61 @@ def init_app(app):
     """Initialize ML model with the app."""
     global model, preprocessor, healthy_cluster_df, coefficients_df
 
+    logger.info("Starting ML model initialization")
     artifacts_path = os.path.join(app.root_path, "..", "artifacts")
+    logger.info(f"Artifacts path: {artifacts_path}")
 
     # Try to download artifacts from W&B
     download_artifacts_from_wandb(artifacts_path)
 
     # Register custom objects under __main__ for pickle compatibility
+    logger.debug("Registering custom classes for pickle compatibility")
     sys.modules["__main__"].clean_occupation_column = clean_occupation_column
     sys.modules["__main__"].LinearRegressionRidge = LinearRegressionRidge
 
     # Load model
     try:
         model_path = os.path.join(artifacts_path, "model.pkl")
+        logger.info(f"Loading model from {model_path}")
         with open(model_path, "rb") as f:
             model = pickle.load(f)
-        print(f"✅ Model loaded from {model_path}")
+        logger.info(f"Model successfully loaded: {type(model).__name__}")
     except Exception as e:
-        print(f"❌ Failed to load model: {e}")
+        logger.error(f"Failed to load model: {e}")
         model = None
 
     # Load preprocessor
     try:
         preprocessor_path = os.path.join(artifacts_path, "preprocessor.pkl")
+        logger.info(f"Loading preprocessor from {preprocessor_path}")
         with open(preprocessor_path, "rb") as f:
             preprocessor = pickle.load(f)
-        print("✅ Preprocessor loaded")
+        logger.info("Preprocessor successfully loaded")
     except Exception as e:
-        print(f"❌ Failed to load preprocessor: {e}")
+        logger.error(f"Failed to load preprocessor: {e}")
         preprocessor = None
 
     # Load healthy cluster data
     try:
         healthy_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
+        logger.info(f"Loading healthy cluster data from {healthy_path}")
         healthy_cluster_df = pd.read_csv(healthy_path)
-        print("✅ Healthy cluster data loaded")
+        logger.info(f"Healthy cluster data loaded: {len(healthy_cluster_df)} rows")
     except Exception as e:
-        print(f"❌ Failed to load healthy cluster: {e}")
+        logger.error(f"Failed to load healthy cluster: {e}")
         healthy_cluster_df = None
 
     # Load coefficients
     try:
         coef_path = os.path.join(artifacts_path, "model_coefficients.csv")
+        logger.info(f"Loading model coefficients from {coef_path}")
         coefficients_df = pd.read_csv(coef_path)
-        print("✅ Coefficients loaded")
+        logger.info(f"Coefficients loaded: {len(coefficients_df)} features")
     except Exception as e:
-        print(f"❌ Failed to load coefficients: {e}")
+        logger.error(f"Failed to load coefficients: {e}")
         coefficients_df = None
+
+    logger.info("ML model initialization complete")
 
 
 # ===================== #
@@ -681,10 +696,13 @@ def analyze_wellness_factors(user_df):
     """
     Analyze wellness factors by comparing healthy cluster vs user input.
     """
+    logger.debug("Starting wellness factor analysis")
     if preprocessor is None or healthy_cluster_df is None or coefficients_df is None:
+        logger.error("Cannot analyze wellness factors: required components not loaded")
         return None
 
     try:
+        logger.debug("Preprocessing healthy cluster and user data")
         healthy_preprocessed = preprocessor.transform(healthy_cluster_df)
         user_preprocessed = preprocessor.transform(user_df)
 
@@ -695,6 +713,7 @@ def analyze_wellness_factors(user_df):
             healthy_arr = healthy_preprocessed[0]
             user_arr = user_preprocessed[0]
 
+        logger.debug(f"Analyzing {len(coefficients_df)} wellness factors")
         results = []
         for idx, row in coefficients_df.iterrows():
             if idx < len(healthy_arr):
@@ -722,13 +741,22 @@ def analyze_wellness_factors(user_df):
         areas_for_improvement.sort(key=lambda x: x["impact_score"], reverse=True)
         strengths.sort(key=lambda x: abs(x["impact_score"]), reverse=True)
 
+        logger.info(
+            f"Wellness analysis complete: {len(areas_for_improvement)}"
+            f"improvements, {len(strengths)} strengths"
+        )
+        logger.debug(
+            "Top improvement area:"
+            + (areas_for_improvement[0]["feature"] if areas_for_improvement else "None")
+        )
+
         return {
             "areas_for_improvement": areas_for_improvement[:5],
             "strengths": strengths[:5],
         }
 
     except Exception as e:
-        print(f"Error in wellness analysis: {e}")
+        logger.error(f"Error in wellness analysis: {e}")
         return None
 
 
@@ -738,10 +766,15 @@ def categorize_mental_health_score(prediction_score):
     capped_score = min(max(prediction_score, 0), 100)
 
     if capped_score <= 12:
-        return "dangerous"
+        category = "dangerous"
     elif capped_score <= 28.6:
-        return "not healthy"
+        category = "not healthy"
     elif capped_score <= 61.4:
-        return "average"
+        category = "average"
     else:
-        return "healthy"
+        category = "healthy"
+
+    logger.debug(
+        f"Mental health score {prediction_score:.2f} categorized as '{category}'"
+    )
+    return category
