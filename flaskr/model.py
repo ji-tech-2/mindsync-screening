@@ -5,8 +5,10 @@ Custom Ridge Regression Implementation
 
 import os
 import sys
+import shutil
 import pickle
 import logging
+import threading
 import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -19,6 +21,13 @@ model = None
 preprocessor = None
 healthy_cluster_df = None
 coefficients_df = None
+
+# Version tracking
+_current_version = None        # W&B artifact digest of the loaded version
+_artifacts_path = None         # Path to artifacts directory
+_flask_app = None              # Flask app reference for background thread
+_version_check_timer = None    # Background timer reference
+_VERSION_CHECK_INTERVAL = 300  # Check every 5 minutes (seconds)
 
 
 def download_artifacts_from_wandb(artifacts_path):
@@ -122,63 +131,326 @@ def download_artifacts_from_wandb(artifacts_path):
         return True
 
 
-def init_app(app):
-    """Initialize ML model with the app."""
-    global model, preprocessor, healthy_cluster_df, coefficients_df
+# ===================== #
+#  ARTIFACT LOADING     #
+# ===================== #
 
-    logger.info("Starting ML model initialization")
-    artifacts_path = os.path.join(app.root_path, "..", "artifacts")
-    logger.info(f"Artifacts path: {artifacts_path}")
 
-    # Try to download artifacts from W&B
-    download_artifacts_from_wandb(artifacts_path)
-
-    # Register custom objects under __main__ for pickle compatibility
-    logger.debug("Registering custom classes for pickle compatibility")
+def _load_artifacts(artifacts_path):
+    """
+    Load all model artifacts from disk into memory.
+    Returns (model, preprocessor, healthy_cluster_df, coefficients_df) or raises.
+    """
+    # Register custom objects for pickle compatibility
     sys.modules["__main__"].clean_occupation_column = clean_occupation_column
     sys.modules["__main__"].LinearRegressionRidge = LinearRegressionRidge
 
-    # Load model
-    try:
-        model_path = os.path.join(artifacts_path, "model.pkl")
-        logger.info(f"Loading model from {model_path}")
-        with open(model_path, "rb") as f:
-            model = pickle.load(f)
-        logger.info(f"Model successfully loaded: {type(model).__name__}")
-    except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        model = None
+    loaded = {}
 
-    # Load preprocessor
-    try:
-        preprocessor_path = os.path.join(artifacts_path, "preprocessor.pkl")
-        logger.info(f"Loading preprocessor from {preprocessor_path}")
-        with open(preprocessor_path, "rb") as f:
-            preprocessor = pickle.load(f)
-        logger.info("Preprocessor successfully loaded")
-    except Exception as e:
-        logger.error(f"Failed to load preprocessor: {e}")
-        preprocessor = None
+    model_path = os.path.join(artifacts_path, "model.pkl")
+    with open(model_path, "rb") as f:
+        loaded["model"] = pickle.load(f)
+    logger.info(f"Model loaded: {type(loaded['model']).__name__}")
 
-    # Load healthy cluster data
-    try:
-        healthy_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
-        logger.info(f"Loading healthy cluster data from {healthy_path}")
-        healthy_cluster_df = pd.read_csv(healthy_path)
-        logger.info(f"Healthy cluster data loaded: {len(healthy_cluster_df)} rows")
-    except Exception as e:
-        logger.error(f"Failed to load healthy cluster: {e}")
-        healthy_cluster_df = None
+    preprocessor_path = os.path.join(artifacts_path, "preprocessor.pkl")
+    with open(preprocessor_path, "rb") as f:
+        loaded["preprocessor"] = pickle.load(f)
+    logger.info("Preprocessor loaded")
 
-    # Load coefficients
+    healthy_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
+    loaded["healthy_cluster_df"] = pd.read_csv(healthy_path)
+    logger.info("Healthy cluster data loaded")
+
+    coef_path = os.path.join(artifacts_path, "model_coefficients.csv")
+    loaded["coefficients_df"] = pd.read_csv(coef_path)
+    logger.info("Coefficients loaded")
+
+    return loaded
+
+
+def _validate_model(loaded):
+    """
+    Quick sanity check: ensure model can predict on a dummy input.
+    Returns True if the model works, False otherwise.
+    """
     try:
-        coef_path = os.path.join(artifacts_path, "model_coefficients.csv")
-        logger.info(f"Loading model coefficients from {coef_path}")
-        coefficients_df = pd.read_csv(coef_path)
-        logger.info(f"Coefficients loaded: {len(coefficients_df)} features")
+        test_model = loaded["model"]
+        # Build a single-row DataFrame with the columns the pipeline expects
+        test_data = pd.DataFrame([{
+            "age": 25,
+            "gender": "Male",
+            "occupation": "Student",
+            "sleep_hours": 7.0,
+            "sleep_quality_1_5": 3,
+            "exercise_minutes_per_week": 150,
+            "social_hours_per_week": 10,
+            "stress_level_0_10": 5,
+            "work_screen_hours": 4,
+            "leisure_screen_hours": 3,
+            "productivity_0_100": 60,
+            "work_mode": "Hybrid",
+        }])
+        prediction = test_model.predict(test_data)
+        if prediction is None or len(prediction) == 0:
+            return False
+        if np.any(np.isnan(prediction)) or np.any(np.isinf(prediction)):
+            return False
+        logger.info(f"Model validation passed (test prediction: {prediction[0]:.2f})")
+        return True
     except Exception as e:
-        logger.error(f"Failed to load coefficients: {e}")
-        coefficients_df = None
+        logger.error(f"Model validation failed: {e}")
+        return False
+
+
+def _apply_loaded_artifacts(loaded):
+    """Apply loaded artifacts to global state."""
+    global model, preprocessor, healthy_cluster_df, coefficients_df
+    model = loaded["model"]
+    preprocessor = loaded["preprocessor"]
+    healthy_cluster_df = loaded["healthy_cluster_df"]
+    coefficients_df = loaded["coefficients_df"]
+
+
+def _backup_artifacts(artifacts_path):
+    """Backup current artifacts to a .bak folder."""
+    backup_dir = artifacts_path + ".bak"
+    if os.path.exists(backup_dir):
+        shutil.rmtree(backup_dir)
+    if os.path.exists(artifacts_path):
+        shutil.copytree(artifacts_path, backup_dir)
+        logger.info(f"Artifacts backed up to {backup_dir}")
+
+
+def _restore_artifacts(artifacts_path):
+    """Restore artifacts from .bak folder."""
+    backup_dir = artifacts_path + ".bak"
+    if not os.path.exists(backup_dir):
+        logger.error("No backup found to restore from")
+        return False
+
+    # Remove failed artifacts and restore backup
+    for fname in os.listdir(backup_dir):
+        src = os.path.join(backup_dir, fname)
+        dst = os.path.join(artifacts_path, fname)
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+    logger.info("Artifacts restored from backup")
+    return True
+
+
+# ===================== #
+#   VERSION CHECKING    #
+# ===================== #
+
+
+def _get_latest_wandb_version(artifacts_path):
+    """
+    Query W&B for the latest artifact version digest.
+    Returns (digest, artifact) tuple or (None, None) if unavailable.
+    """
+    try:
+        import wandb
+
+        skip_wandb = os.getenv("SKIP_WANDB_DOWNLOAD", "false").lower() == "true"
+        if skip_wandb:
+            return None, None
+
+        wandb_project = os.getenv("WANDB_PROJECT", "mindsync-model")
+        wandb_entity = os.getenv("WANDB_ENTITY", None)
+        artifact_name = "mindsync-model-smart"
+
+        api = wandb.Api()
+        if wandb_entity:
+            artifact_path = (
+                f"{wandb_entity}/{wandb_project}/{artifact_name}:latest"
+            )
+        else:
+            artifact_path = f"{wandb_project}/{artifact_name}:latest"
+
+        artifact = api.artifact(artifact_path, type="model")
+        return artifact.digest, artifact
+
+    except ImportError:
+        logger.debug("wandb not installed, skipping version check")
+        return None, None
+    except Exception as e:
+        logger.warning(f"Version check failed: {e}")
+        return None, None
+
+
+def _download_wandb_artifact(artifact, artifacts_path):
+    """
+    Download a specific W&B artifact to the artifacts directory.
+    Returns True on success.
+    """
+    try:
+        from pathlib import Path
+
+        artifact_dir = artifact.download(root=artifacts_path)
+        logger.info(f"Downloaded artifact to: {artifact_dir}")
+
+        versioned_path = Path(artifact_dir)
+        artifacts_root = Path(artifacts_path)
+        preserve_files = ["healthy_cluster_avg.csv"]
+
+        if versioned_path != artifacts_root:
+            for file in versioned_path.glob("*.pkl"):
+                shutil.copy2(file, artifacts_root / file.name)
+            for file in versioned_path.glob("*.csv"):
+                if file.name not in preserve_files:
+                    shutil.copy2(file, artifacts_root / file.name)
+            try:
+                shutil.rmtree(versioned_path)
+            except Exception:
+                pass
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to download artifact: {e}")
+        return False
+
+
+def _check_for_updates():
+    """
+    Background task: check W&B for newer model version.
+    If found, download, validate, and hot-swap. If broken, rollback.
+    """
+    global _current_version, _version_check_timer
+
+    try:
+        if _artifacts_path is None:
+            return
+
+        logger.info("Checking for model updates...")
+        latest_digest, artifact = _get_latest_wandb_version(_artifacts_path)
+
+        if latest_digest is None:
+            logger.info("Could not reach W&B, skipping update check")
+            return
+
+        if latest_digest == _current_version:
+            logger.info(
+                f"Model is up to date (version: {_current_version[:8]}...)"
+            )
+            return
+
+        logger.info(
+            f"New model version found: {latest_digest[:8]}... "
+            f"(current: {(_current_version or 'none')[:8]}...)"
+        )
+
+        # Backup current working artifacts
+        _backup_artifacts(_artifacts_path)
+
+        # Download new version
+        if not _download_wandb_artifact(artifact, _artifacts_path):
+            logger.error("Download failed, keeping current version")
+            _restore_artifacts(_artifacts_path)
+            return
+
+        # Try loading the new artifacts
+        try:
+            loaded = _load_artifacts(_artifacts_path)
+        except Exception as e:
+            logger.error(f"Failed to load new artifacts: {e}")
+            _restore_artifacts(_artifacts_path)
+            return
+
+        # Validate the new model
+        if not _validate_model(loaded):
+            logger.error(
+                "New model failed validation, reverting to previous version"
+            )
+            _restore_artifacts(_artifacts_path)
+            # Reload the restored artifacts
+            try:
+                loaded = _load_artifacts(_artifacts_path)
+                _apply_loaded_artifacts(loaded)
+            except Exception as e:
+                logger.error(f"Failed to reload after revert: {e}")
+            return
+
+        # New model is valid — hot-swap
+        _apply_loaded_artifacts(loaded)
+        _current_version = latest_digest
+        logger.info(
+            f"Model updated successfully to version {latest_digest[:8]}..."
+        )
+
+    except Exception as e:
+        logger.error(f"Unexpected error during update check: {e}")
+
+    finally:
+        # Schedule next check
+        _schedule_version_check()
+
+
+def _schedule_version_check():
+    """Schedule the next version check."""
+    global _version_check_timer
+
+    if _version_check_timer is not None:
+        _version_check_timer.cancel()
+
+    _version_check_timer = threading.Timer(
+        _VERSION_CHECK_INTERVAL, _check_for_updates
+    )
+    _version_check_timer.daemon = True
+    _version_check_timer.start()
+    logger.debug(
+        f"Next version check in {_VERSION_CHECK_INTERVAL // 60} minutes"
+    )
+
+
+# ===================== #
+#   APP INITIALIZATION  #
+# ===================== #
+
+
+def init_app(app):
+    """Initialize ML model with the app."""
+    global model, preprocessor, healthy_cluster_df, coefficients_df
+    global _current_version, _artifacts_path, _flask_app
+
+    logger.info("Starting ML model initialization")
+    _artifacts_path = os.path.join(app.root_path, "..", "artifacts")
+    _flask_app = app
+    logger.info(f"Artifacts path: {_artifacts_path}")
+
+    # Try to download artifacts from W&B
+    download_artifacts_from_wandb(_artifacts_path)
+
+    # Load and validate all artifacts
+    try:
+        loaded = _load_artifacts(_artifacts_path)
+        if _validate_model(loaded):
+            _apply_loaded_artifacts(loaded)
+            logger.info("All artifacts loaded and validated")
+        else:
+            logger.error("Model validation failed on initial load")
+            # Still apply — better to have a model than none
+            _apply_loaded_artifacts(loaded)
+    except Exception as e:
+        logger.error(f"Failed to load artifacts: {e}")
+
+    # Record current version from W&B if available
+    digest, _ = _get_latest_wandb_version(_artifacts_path)
+    if digest:
+        _current_version = digest
+        logger.info(f"Current model version: {_current_version[:8]}...")
+    else:
+        logger.info("Running with local artifacts (no W&B version tracked)")
+
+    # Start background version checker
+    skip_wandb = os.getenv("SKIP_WANDB_DOWNLOAD", "false").lower() == "true"
+    if not skip_wandb:
+        _schedule_version_check()
+        logger.info(
+            f"Version auto-update enabled (every "
+            f"{_VERSION_CHECK_INTERVAL // 60} minutes)"
+        )
+    else:
+        logger.info("Version auto-update disabled (SKIP_WANDB_DOWNLOAD=true)")
 
     logger.info("ML model initialization complete")
 
