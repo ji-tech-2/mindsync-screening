@@ -1,0 +1,84 @@
+# Coverage.py configuration file
+# https://coverage.readthedocs.io/en/latest/config.html
+
+[run]
+# Source packages to measure
+source = flaskr
+
+# Files to omit from coverage
+omit =
+    */tests/*
+    */test_*.py
+    */__pycache__/*
+    */venv/*
+    */env/*
+    */.venv/*
+    */instance/*
+    */site-packages/*
+
+# Enable branch coverage
+branch = True
+
+# Run coverage in parallel mode (useful for multiprocessing)
+parallel = False
+
+[report]
+# Precision for reported coverage percentages
+precision = 2
+
+# Show missing lines in report
+show_missing = True
+
+# Skip files with 100% coverage
+skip_covered = False
+
+# Skip empty files
+skip_empty = True
+
+# Fail if coverage is below this threshold
+fail_under = 80
+
+# Regexes for lines to exclude from consideration
+exclude_lines =
+    # Standard pragma
+    pragma: no cover
+    
+    # Don't complain about missing debug code
+    def __repr__
+    def __str__
+    
+    # Don't complain if tests don't hit defensive assertion code
+    raise AssertionError
+    raise NotImplementedError
+    
+    # Don't complain if non-runnable code isn't run
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    if typing.TYPE_CHECKING:
+    
+    # Don't complain about abstract methods
+    @abstractmethod
+    @abc.abstractmethod
+    
+    # Don't complain about pass statements
+    pass
+    
+    # Don't complain about ellipsis
+    \.\.\.
+
+[html]
+# Directory for HTML output
+directory = htmlcov
+
+# Title for HTML report
+title = MindSync Model Flask - Coverage Report
+
+[xml]
+# Output file for XML report
+output = coverage.xml
+
+[paths]
+# Map source paths for combined coverage
+source =
+    flaskr/
+    */site-packages/flaskr/

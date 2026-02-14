@@ -302,3 +302,27 @@ class TestModelIntegration:
         pred2 = model2.predict([[2, 3]])
 
         np.testing.assert_array_almost_equal(pred1, pred2)
+
+
+class TestCategorizeFunctions:
+    """Additional tests for categorization functions."""
+
+    def test_categorize_edge_cases(self):
+        """Test categorization at exact boundaries."""
+        assert categorize_mental_health_score(0.0) == "dangerous"
+        assert categorize_mental_health_score(28.6) == "not healthy"
+        assert categorize_mental_health_score(61.4) == "average"
+        assert categorize_mental_health_score(75.0) == "healthy"
+        assert categorize_mental_health_score(100.0) == "healthy"
+
+    def test_categorize_fractional_scores(self):
+        """Test categorization with fractional scores."""
+        assert categorize_mental_health_score(12.0) == "dangerous"
+        assert categorize_mental_health_score(28.5) == "not healthy"
+        assert categorize_mental_health_score(61.3) == "average"
+        assert categorize_mental_health_score(100.1) == "healthy"  # Above max
+
+    def test_categorize_negative_score(self):
+        """Test categorization with negative score."""
+        result = categorize_mental_health_score(-10.0)
+        assert result == "dangerous"

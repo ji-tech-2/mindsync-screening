@@ -2,6 +2,23 @@
 
 **Independent microservice** untuk serving ML predictions menggunakan Flask, scikit-learn, dan Google Gemini AI.
 
+[![CI](https://github.com/YOUR_USERNAME/mindsync-model-flask/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/mindsync-model-flask/actions/workflows/ci.yml)
+[![Artifact Build](https://github.com/YOUR_USERNAME/mindsync-model-flask/actions/workflows/artifact.yml/badge.svg)](https://github.com/YOUR_USERNAME/mindsync-model-flask/actions/workflows/artifact.yml)
+[![CD](https://github.com/YOUR_USERNAME/mindsync-model-flask/actions/workflows/cd.yml/badge.svg)](https://github.com/YOUR_USERNAME/mindsync-model-flask/actions/workflows/cd.yml)
+[![codecov](https://codecov.io/gh/YOUR_USERNAME/mindsync-model-flask/branch/main/graph/badge.svg)](https://codecov.io/gh/YOUR_USERNAME/mindsync-model-flask)
+
+## 📊 Code Quality Standards
+
+| Metric                | Standard    | Status      |
+| --------------------- | ----------- | ----------- |
+| Code Coverage         | ≥ 80%       | ✅ Enforced |
+| Cyclomatic Complexity | ≤ 15        | ✅ Enforced |
+| Code Duplication      | None        | ✅ Enforced |
+| Security Issues       | No critical | ✅ Enforced |
+| Code Quality Score    | ≥ 8.0/10    | ✅ Enforced |
+
+> **Quality Assurance**: All code is automatically checked in CI/CD with actual metrics displayed (coverage %, Pylint score, complexity values, issue counts). See workflow runs for detailed quality reports.
+
 > **Note**: Service ini adalah microservice yang terpisah dan independen. Model artifacts di-download dari Weights & Biases yang di-upload oleh training service secara terpisah.
 
 ## 🏗️ Architecture Overview
@@ -473,7 +490,201 @@ curl http://localhost:5000/result/<prediction_id>
 
 > **Note:** Automated pytest tests belum diimplementasikan. Untuk kontribusi test suite, silakan buat `tests/` directory dan tambahkan pytest ke requirements.
 
-## 🐳 Docker Deployment
+## � Code Quality & Coverage
+
+This project enforces enterprise-grade code quality standards using industry-standard tools.
+
+### Quality Standards
+
+| Metric                | Standard            | Tool          |
+| --------------------- | ------------------- | ------------- |
+| Code Coverage         | ≥ 80%               | pytest-cov    |
+| Cyclomatic Complexity | ≤ 15                | Radon, Flake8 |
+| Code Duplication      | None                | Pylint        |
+| Security Issues       | No blocker/critical | Bandit        |
+| Code Quality Score    | ≥ 8.0/10            | Pylint        |
+
+### Quick Commands
+
+```bash
+# Run all quality checks
+python check_quality.py
+
+# Run quality checks with auto-fix
+python check_quality.py --fix
+
+# Or using Makefile
+make quality           # Run all checks
+make quality-fix       # Run with auto-fix
+make test              # Run tests only
+make coverage          # Run tests with coverage report
+```
+
+### Individual Quality Checks
+
+#### 1. Code Coverage
+
+```bash
+# Run tests with coverage report
+pytest --cov=flaskr --cov-report=term-missing --cov-report=html
+
+# View HTML coverage report
+# Open htmlcov/index.html in browser
+
+# Or using Makefile
+make coverage
+```
+
+Coverage reports show:
+
+- Line coverage percentage
+- Missing lines for each file
+- Branch coverage
+- HTML report with detailed line-by-line coverage
+
+#### 2. Code Formatting
+
+```bash
+# Check formatting
+black --check --diff flaskr tests *.py
+
+# Auto-fix formatting
+black flaskr tests *.py
+
+# Or using Makefile
+make format
+```
+
+#### 3. Linting & Style
+
+```bash
+# Run Flake8 (style + complexity)
+flake8 flaskr tests --config=.flake8
+
+# Run Pylint (code quality)
+pylint flaskr --rcfile=.pylintrc
+
+# Or using Makefile
+make lint
+```
+
+#### 4. Cyclomatic Complexity
+
+```bash
+# Check complexity with Radon
+radon cc flaskr -a -nb           # Cyclomatic complexity
+radon mi flaskr -nb              # Maintainability index
+
+# Or using Makefile
+make complexity
+```
+
+Complexity grades:
+
+- **A**: 1-5 (simple)
+- **B**: 6-10 (well-structured)
+- **C**: 11-15 (acceptable) ⚠️
+- **D+**: 16+ (needs refactoring) ❌
+
+#### 5. Security Scanning
+
+```bash
+# Run Bandit security scanner
+bandit -r flaskr -ll -f screen
+
+# Or using Makefile
+make security
+```
+
+#### 6. Code Duplication
+
+```bash
+# Check for duplicate code
+pylint flaskr --disable=all --enable=duplicate-code
+
+# Or using Makefile
+make duplication
+```
+
+### Configuration Files
+
+- [.pylintrc](.pylintrc) - Pylint configuration
+- [.flake8](.flake8) - Flake8 configuration
+- [pyproject.toml](pyproject.toml) - Black, coverage, pytest configuration
+- [pytest.ini](pytest.ini) - Pytest settings
+
+### CI/CD Integration
+
+Quality checks run automatically on:
+
+- Every push to `main` or `develop` branches
+- Every pull request
+- Manual workflow dispatch
+
+See [.github/workflows/quality.yml](.github/workflows/quality.yml) for CI configuration.
+
+### Pre-commit Hooks (Optional)
+
+To run quality checks before each commit:
+
+```bash
+# Install pre-commit hooks (if using pre-commit)
+pip install pre-commit
+pre-commit install
+
+# Run manually
+pre-commit run --all-files
+```
+
+### Development Workflow
+
+1. **Before committing**:
+
+   ```bash
+   # Format code
+   make format
+
+   # Run quality checks
+   make quality
+   ```
+
+2. **Fix issues**:
+
+   ```bash
+   # Auto-fix formatting
+   make quality-fix
+
+   # Manually fix linting/complexity issues
+   # Check output of: make lint
+   ```
+
+3. **Verify coverage**:
+
+   ```bash
+   make coverage
+   # Ensure coverage ≥ 80%
+   ```
+
+4. **Commit and push**:
+   ```bash
+   git add .
+   git commit -m "feat: add new feature"
+   git push
+   ```
+
+### Quality Gate
+
+The following checks must pass before merging:
+
+✅ All tests pass  
+✅ Code coverage ≥ 80%  
+✅ No functions with complexity > 15  
+✅ No code duplication  
+✅ No blocker/critical security issues  
+✅ Pylint score ≥ 8.0/10  
+✅ Code formatted with Black
+
+## �🐳 Docker Deployment
 
 ```bash
 docker build -t mindsync-api .

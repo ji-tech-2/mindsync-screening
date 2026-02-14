@@ -27,12 +27,12 @@ def create_app(test_config=None):
 
     # Create and configure the app
     app = Flask(__name__, instance_relative_config=True)
-    logger.info(f"Flask app created with instance path: {app.instance_path}")
+    logger.info("Flask app created with instance path: %s", app.instance_path)
 
     # Detect DB availability (disabled when env not set)
     database_url = os.getenv("DATABASE_URL")
     db_enabled = bool(database_url)
-    logger.info(f"Database enabled: {db_enabled}")
+    logger.info("Database enabled: %s", db_enabled)
     if db_enabled:
         logger.info("Database URL configured from environment")
 
@@ -63,7 +63,7 @@ def create_app(test_config=None):
     # Ensure the instance folder exists
     try:
         os.makedirs(app.instance_path)
-        logger.info(f"Instance folder created/verified: {app.instance_path}")
+        logger.info("Instance folder created/verified: %s", app.instance_path)
     except OSError:
         logger.debug("Instance folder already exists")
 

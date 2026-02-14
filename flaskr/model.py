@@ -6,7 +6,7 @@ Custom Ridge Regression Implementation
 import os
 import sys
 import shutil
-import pickle
+import pickle  # nosec B403 - Pickle used for trusted ML model files only
 import logging
 import threading
 import pandas as pd
@@ -68,7 +68,7 @@ def download_artifacts_from_wandb(artifacts_path):
         else:
             artifact_path = f"{wandb_project}/{artifact_name}:{artifact_version}"
 
-        logger.info(f"Fetching W&B artifact: {artifact_path}")
+        logger.info("Fetching W&B artifact: %s", artifact_path)
 
         # Check if healthy_cluster_avg.csv exists locally (should be preserved)
         healthy_cluster_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
@@ -83,7 +83,7 @@ def download_artifacts_from_wandb(artifacts_path):
         # Download artifact
         artifact = api.artifact(artifact_path, type="model")
         artifact_dir = artifact.download(root=artifacts_path)
-        logger.info(f"Artifacts downloaded to: {artifact_dir}")
+        logger.info("Artifacts downloaded to: %s", artifact_dir)
 
         # Copy files from versioned folder to root artifacts/ for easy access
         from pathlib import Path
@@ -95,30 +95,30 @@ def download_artifacts_from_wandb(artifacts_path):
         preserve_files = ["healthy_cluster_avg.csv"]
 
         if versioned_path != artifacts_root:
-            logger.info(f"Copying files from {versioned_path.name}/ to artifacts/...")
+            logger.info("Copying files from %s/ to artifacts/...", versioned_path.name)
             for file in versioned_path.glob("*.pkl"):
                 dest = artifacts_root / file.name
                 shutil.copy2(file, dest)
-                logger.debug(f"Copied {file.name}")
+                logger.debug("Copied %s", file.name)
             for file in versioned_path.glob("*.csv"):
                 if file.name not in preserve_files:
                     dest = artifacts_root / file.name
                     shutil.copy2(file, dest)
-                    logger.debug(f"Copied {file.name}")
+                    logger.debug("Copied %s", file.name)
 
             # Clean up versioned folder
             try:
                 shutil.rmtree(versioned_path)
-                logger.info(f"Cleaned up versioned folder: {versioned_path.name}/")
+                logger.info("Cleaned up versioned folder: %s/", versioned_path.name)
             except Exception as e:
-                logger.warning(f"Could not clean up {versioned_path}: {e}")
+                logger.warning("Could not clean up %s: %s", versioned_path, e)
 
         # Restore local healthy_cluster_avg.csv if it was backed up
         if backup_path and os.path.exists(backup_path):
             shutil.move(backup_path, healthy_cluster_path)
             logger.info("Restored local healthy_cluster_avg.csv (not overwritten)")
 
-        logger.info(f"W&B artifacts successfully downloaded to: {artifact_dir}")
+        logger.info("W&B artifacts successfully downloaded to: %s", artifact_dir)
         return True
 
     except ImportError:
@@ -126,7 +126,7 @@ def download_artifacts_from_wandb(artifacts_path):
         return True
 
     except Exception as e:
-        logger.error(f"Failed to download from W&B: {e}")
+        logger.error("Failed to download from W&B: %s", e)
         logger.info("Will attempt to use local artifacts if available")
         return True
 
@@ -149,12 +149,12 @@ def _load_artifacts(artifacts_path):
 
     model_path = os.path.join(artifacts_path, "model.pkl")
     with open(model_path, "rb") as f:
-        loaded["model"] = pickle.load(f)
-    logger.info(f"Model loaded: {type(loaded['model']).__name__}")
+        loaded["model"] = pickle.load(f)  # nosec B301 - trusted model file
+    logger.info("Model loaded: %s", type(loaded["model"]).__name__)
 
     preprocessor_path = os.path.join(artifacts_path, "preprocessor.pkl")
     with open(preprocessor_path, "rb") as f:
-        loaded["preprocessor"] = pickle.load(f)
+        loaded["preprocessor"] = pickle.load(f)  # nosec B301 - trusted model file
     logger.info("Preprocessor loaded")
 
     healthy_path = os.path.join(artifacts_path, "healthy_cluster_avg.csv")
@@ -199,10 +199,10 @@ def _validate_model(loaded):
             return False
         if np.any(np.isnan(prediction)) or np.any(np.isinf(prediction)):
             return False
-        logger.info(f"Model validation passed (test prediction: {prediction[0]:.2f})")
+        logger.info("Model validation passed (test prediction: %.2f)", prediction[0])
         return True
     except Exception as e:
-        logger.error(f"Model validation failed: {e}")
+        logger.error("Model validation failed: %s", e)
         return False
 
 
@@ -222,7 +222,7 @@ def _backup_artifacts(artifacts_path):
         shutil.rmtree(backup_dir)
     if os.path.exists(artifacts_path):
         shutil.copytree(artifacts_path, backup_dir)
-        logger.info(f"Artifacts backed up to {backup_dir}")
+        logger.info("Artifacts backed up to %s", backup_dir)
 
 
 def _restore_artifacts(artifacts_path):
@@ -276,7 +276,7 @@ def _get_latest_wandb_version(artifacts_path):
         logger.debug("wandb not installed, skipping version check")
         return None, None
     except Exception as e:
-        logger.warning(f"Version check failed: {e}")
+        logger.warning("Version check failed: %s", e)
         return None, None
 
 
@@ -289,7 +289,7 @@ def _download_wandb_artifact(artifact, artifacts_path):
         from pathlib import Path
 
         artifact_dir = artifact.download(root=artifacts_path)
-        logger.info(f"Downloaded artifact to: {artifact_dir}")
+        logger.info("Downloaded artifact to: %s", artifact_dir)
 
         versioned_path = Path(artifact_dir)
         artifacts_root = Path(artifacts_path)
@@ -303,12 +303,12 @@ def _download_wandb_artifact(artifact, artifacts_path):
                     shutil.copy2(file, artifacts_root / file.name)
             try:
                 shutil.rmtree(versioned_path)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to remove versioned path {versioned_path}: {e}")
 
         return True
     except Exception as e:
-        logger.error(f"Failed to download artifact: {e}")
+        logger.error("Failed to download artifact: %s", e)
         return False
 
 
@@ -331,7 +331,7 @@ def _check_for_updates():
             return
 
         if latest_digest == _current_version:
-            logger.info(f"Model is up to date (version: {_current_version[:8]}...)")
+            logger.info("Model is up to date (version: %s...)", _current_version[:8])
             return
 
         logger.info(
@@ -352,7 +352,7 @@ def _check_for_updates():
         try:
             loaded = _load_artifacts(_artifacts_path)
         except Exception as e:
-            logger.error(f"Failed to load new artifacts: {e}")
+            logger.error("Failed to load new artifacts: %s", e)
             _restore_artifacts(_artifacts_path)
             return
 
@@ -365,16 +365,16 @@ def _check_for_updates():
                 loaded = _load_artifacts(_artifacts_path)
                 _apply_loaded_artifacts(loaded)
             except Exception as e:
-                logger.error(f"Failed to reload after revert: {e}")
+                logger.error("Failed to reload after revert: %s", e)
             return
 
         # New model is valid — hot-swap
         _apply_loaded_artifacts(loaded)
         _current_version = latest_digest
-        logger.info(f"Model updated successfully to version {latest_digest[:8]}...")
+        logger.info("Model updated successfully to version %s...", latest_digest[:8])
 
     except Exception as e:
-        logger.error(f"Unexpected error during update check: {e}")
+        logger.error("Unexpected error during update check: %s", e)
 
     finally:
         # Schedule next check
@@ -391,7 +391,7 @@ def _schedule_version_check():
     _version_check_timer = threading.Timer(_VERSION_CHECK_INTERVAL, _check_for_updates)
     _version_check_timer.daemon = True
     _version_check_timer.start()
-    logger.debug(f"Next version check in {_VERSION_CHECK_INTERVAL // 60} minutes")
+    logger.debug("Next version check in %s minutes", _VERSION_CHECK_INTERVAL // 60)
 
 
 # ===================== #
@@ -407,7 +407,7 @@ def init_app(app):
     logger.info("Starting ML model initialization")
     _artifacts_path = os.path.join(app.root_path, "..", "artifacts")
     _flask_app = app
-    logger.info(f"Artifacts path: {_artifacts_path}")
+    logger.info("Artifacts path: %s", _artifacts_path)
 
     # Try to download artifacts from W&B
     download_artifacts_from_wandb(_artifacts_path)
@@ -423,13 +423,13 @@ def init_app(app):
             # Still apply — better to have a model than none
             _apply_loaded_artifacts(loaded)
     except Exception as e:
-        logger.error(f"Failed to load artifacts: {e}")
+        logger.error("Failed to load artifacts: %s", e)
 
     # Record current version from W&B if available
     digest, _ = _get_latest_wandb_version(_artifacts_path)
     if digest:
         _current_version = digest
-        logger.info(f"Current model version: {_current_version[:8]}...")
+        logger.info("Current model version: %s...", _current_version[:8])
     else:
         logger.info("Running with local artifacts (no W&B version tracked)")
 
@@ -977,7 +977,7 @@ def analyze_wellness_factors(user_df):
             healthy_arr = healthy_preprocessed[0]
             user_arr = user_preprocessed[0]
 
-        logger.debug(f"Analyzing {len(coefficients_df)} wellness factors")
+        logger.debug("Analyzing %s wellness factors", len(coefficients_df))
         results = []
         for idx, row in coefficients_df.iterrows():
             if idx < len(healthy_arr):
@@ -1010,8 +1010,8 @@ def analyze_wellness_factors(user_df):
             f"improvements, {len(strengths)} strengths"
         )
         logger.debug(
-            "Top improvement area:"
-            + (areas_for_improvement[0]["feature"] if areas_for_improvement else "None")
+            "Top improvement area: %s",
+            areas_for_improvement[0]["feature"] if areas_for_improvement else "None",
         )
 
         return {
@@ -1020,7 +1020,7 @@ def analyze_wellness_factors(user_df):
         }
 
     except Exception as e:
-        logger.error(f"Error in wellness analysis: {e}")
+        logger.error("Error in wellness analysis: %s", e)
         return None
 
 

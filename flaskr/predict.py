@@ -50,7 +50,7 @@ def predict():
     # Check if at least one storage backend is available
     db_enabled = not current_app.config.get("DB_DISABLED", False)
     cache_available = cache.is_available()
-    logger.debug(f"Storage backends - DB: {db_enabled}, Cache: {cache_available}")
+    logger.debug("Storage backends - DB: %s, Cache: %s", db_enabled, cache_available)
 
     if not db_enabled and not cache_available:
         logger.error("No storage backend available for predictions")
@@ -70,14 +70,14 @@ def predict():
     try:
         json_input = request.get_json()
         logger.debug(
-            "Received prediction input with keys: "
-            + (str(list(json_input.keys())) if json_input else "None")
+            "Received prediction input with keys: %s",
+            str(list(json_input.keys())) if json_input else "None",
         )
 
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
         created_at = datetime.now().isoformat()
-        logger.info(f"Created prediction request with ID: {prediction_id}")
+        logger.info("Created prediction request with ID: %s", prediction_id)
 
         # Initialize status as processing
         cache.store_prediction(
@@ -88,10 +88,10 @@ def predict():
                 "created_at": created_at,
             },
         )
-        logger.debug(f"Initial status stored in cache for {prediction_id}")
+        logger.debug("Initial status stored in cache for %s", prediction_id)
 
         # Start background processing
-        logger.info(f"Starting background processing thread for {prediction_id}")
+        logger.info("Starting background processing thread for %s", prediction_id)
         thread = threading.Thread(
             target=process_prediction,
             args=(
@@ -103,7 +103,7 @@ def predict():
         )
         thread.daemon = True
         thread.start()
-        logger.debug(f"Background thread started for {prediction_id}")
+        logger.debug("Background thread started for %s", prediction_id)
 
         return (
             jsonify(
@@ -120,18 +120,18 @@ def predict():
         )
 
     except Exception as e:
-        logger.error(f"Error processing prediction request: {e}", exc_info=True)
+        logger.error("Error processing prediction request: %s", e, exc_info=True)
         return jsonify({"error": str(e), "status": "error"}), 400
 
 
 @bp.route("/result/<prediction_id>", methods=["GET"])
 def get_result(prediction_id):
     """Check prediction status and get results."""
-    logger.info(f"Received GET request to /result/{prediction_id}")
+    logger.info("Received GET request to /result/%s", prediction_id)
 
     # Validate UUID
     if not is_valid_uuid(prediction_id):
-        logger.warning(f"Invalid UUID format provided: {prediction_id}")
+        logger.warning("Invalid UUID format provided: %s", prediction_id)
         return (
             jsonify(
                 {
@@ -143,15 +143,15 @@ def get_result(prediction_id):
         )
 
     # Check cache first
-    logger.debug(f"Checking cache for prediction {prediction_id}")
+    logger.debug("Checking cache for prediction %s", prediction_id)
     prediction_data = cache.fetch_prediction(prediction_id)
 
     if prediction_data:
         status = prediction_data["status"]
-        logger.debug(f"Cache hit for {prediction_id} with status: {status}")
+        logger.debug("Cache hit for %s with status: %s", prediction_id, status)
 
         if status == "processing":
-            logger.debug(f"Prediction {prediction_id} still processing")
+            logger.debug("Prediction %s still processing", prediction_id)
             return (
                 jsonify(
                     {
@@ -166,7 +166,7 @@ def get_result(prediction_id):
             )
 
         elif status == "partial":
-            logger.info(f"Returning partial result for {prediction_id}")
+            logger.info("Returning partial result for %s", prediction_id)
             return (
                 jsonify(
                     {
@@ -180,7 +180,7 @@ def get_result(prediction_id):
             )
 
         elif status == "ready":
-            logger.info(f"Returning complete result for {prediction_id}")
+            logger.info("Returning complete result for %s", prediction_id)
             return (
                 jsonify(
                     {
@@ -195,8 +195,9 @@ def get_result(prediction_id):
 
         elif status == "error":
             logger.error(
-                f"Prediction {prediction_id} encountered an error: "
-                + str(prediction_data.get("error"))
+                "Prediction %s encountered an error: %s",
+                prediction_id,
+                str(prediction_data.get("error")),
             )
             return (
                 jsonify(
@@ -225,11 +226,11 @@ def get_result(prediction_id):
             404,
         )
 
-    logger.debug(f"Cache miss for {prediction_id}, checking database")
+    logger.debug("Cache miss for %s, checking database", prediction_id)
     db_result = read_from_db(prediction_id=prediction_id)
 
     if db_result.get("status") == "success":
-        logger.info(f"Found prediction {prediction_id} in database")
+        logger.info("Found prediction %s in database", prediction_id)
         data = db_result["data"]
         return (
             jsonify(
@@ -244,7 +245,7 @@ def get_result(prediction_id):
             200,
         )
 
-    logger.warning(f"Prediction {prediction_id} not found in cache or database")
+    logger.warning("Prediction %s not found in cache or database", prediction_id)
     return jsonify(db_result), 404
 
 
@@ -289,14 +290,14 @@ def advice():
         return jsonify({"ai_advice": ai_advice, "status": "success"})
 
     except Exception as e:
-        logger.error(f"Error in advice endpoint: {e}", exc_info=True)
+        logger.error("Error in advice endpoint: %s", e, exc_info=True)
         return jsonify({"error": str(e), "status": "error"}), 400
 
 
 @bp.route("/streak/<user_id>", methods=["GET"])
 def get_streak(user_id):
     """Get current streak status (Daily & Weekly) for a user."""
-    logger.info(f"Received GET request to /streak/{user_id}")
+    logger.info("Received GET request to /streak/%s", user_id)
 
     if current_app.config.get("DB_DISABLED", False):
         logger.warning("Streak request rejected - database disabled")
@@ -311,19 +312,19 @@ def get_streak(user_id):
         )
 
     if not is_valid_uuid(user_id):
-        logger.warning(f"Invalid user_id format in streak request: {user_id}")
+        logger.warning("Invalid user_id format in streak request: %s", user_id)
         return (
             jsonify({"error": "Invalid user_id format. Must be a valid UUID string."}),
             400,
         )
 
     try:
-        logger.debug(f"Querying streak data for user {user_id}")
+        logger.debug("Querying streak data for user %s", user_id)
         # Use existing database session
         streak_record = UserStreaks.query.get(uuid.UUID(user_id))
 
         if streak_record:
-            logger.info(f"Streak data found for user {user_id}")
+            logger.info("Streak data found for user %s", user_id)
             return jsonify({"status": "success", "data": streak_record.to_dict()}), 200
         else:
             logger.info(
@@ -345,14 +346,16 @@ def get_streak(user_id):
             )
 
     except Exception as e:
-        logger.error(f"Error retrieving streak for user {user_id}: {e}", exc_info=True)
+        logger.error(
+            "Error retrieving streak for user %s: %s", user_id, e, exc_info=True
+        )
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
 @bp.route("/history/<user_id>", methods=["GET"])
 def get_history(user_id):
     """Get full history of predictions for a user."""
-    logger.info(f"Received GET request to /history/{user_id}")
+    logger.info("Received GET request to /history/%s", user_id)
 
     # Check DB Status
     if current_app.config.get("DB_DISABLED", False):
@@ -962,7 +965,7 @@ def format_db_output(data):
 
 def process_prediction(prediction_id, json_input, created_at, app):
     """Background task for processing prediction."""
-    logger.info(f"Background processing started for prediction {prediction_id}")
+    logger.info("Background processing started for prediction %s", prediction_id)
     try:
         with app.app_context():
             # Convert input to DataFrame
@@ -970,23 +973,25 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 df = pd.DataFrame([json_input])
             else:
                 df = pd.DataFrame(json_input)
-            logger.debug(f"Input converted to DataFrame with shape {df.shape}")
+            logger.debug("Input converted to DataFrame with shape %s", df.shape)
 
             # Fast part: Prediction & Analysis
-            logger.info(f"Running model prediction for {prediction_id}")
+            logger.info("Running model prediction for %s", prediction_id)
             prediction = model.model.predict(df)
             prediction_score = float(prediction[0])
-            logger.info(f"Prediction score for {prediction_id}: {prediction_score:.2f}")
+            logger.info(
+                "Prediction score for %s: %.2f", prediction_id, prediction_score
+            )
 
-            logger.debug(f"Analyzing wellness factors for {prediction_id}")
+            logger.debug("Analyzing wellness factors for %s", prediction_id)
             wellness_analysis = model.analyze_wellness_factors(df)
             if not wellness_analysis:
                 logger.warning(
-                    f"Wellness analysis failed for {prediction_id}, using fallback"
+                    "Wellness analysis failed for %s, using fallback", prediction_id
                 )
                 wellness_analysis = {"areas_for_improvement": [], "strengths": []}
             else:
-                logger.debug(f"Wellness analysis complete for {prediction_id}")
+                logger.debug("Wellness analysis complete for %s", prediction_id)
 
             mental_health_category = model.categorize_mental_health_score(
                 prediction_score
@@ -996,7 +1001,7 @@ def process_prediction(prediction_id, json_input, created_at, app):
             )
 
             # Store partial result
-            logger.debug(f"Storing partial result for {prediction_id}")
+            logger.debug("Storing partial result for %s", prediction_id)
             cache.store_prediction(
                 prediction_id,
                 {
@@ -1012,10 +1017,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
                     ),
                 },
             )
-            logger.info(f"Partial result stored and ready for {prediction_id}")
+            logger.info("Partial result stored and ready for %s", prediction_id)
 
             # Slow part: Gemini AI
-            logger.info(f"Requesting AI advice for {prediction_id}")
+            logger.info("Requesting AI advice for %s", prediction_id)
             api_key = current_app.config.get("GEMINI_API_KEY")
             ai_advice = ai.get_ai_advice(
                 prediction_score, mental_health_category, wellness_analysis, api_key
@@ -1023,18 +1028,18 @@ def process_prediction(prediction_id, json_input, created_at, app):
 
             if not ai_advice or not isinstance(ai_advice, dict):
                 logger.warning(
-                    f"AI advice generation failed for {prediction_id}, using fallback"
+                    "AI advice generation failed for %s, using fallback", prediction_id
                 )
                 ai_advice = {
                     "factors": {},
                     "description": "AI advice could not be generated at this time.",
                 }
             else:
-                logger.info(f"AI advice generated successfully for {prediction_id}")
+                logger.info("AI advice generated successfully for %s", prediction_id)
 
             if not current_app.config.get("DB_DISABLED", False):
                 try:
-                    logger.debug(f"Saving prediction {prediction_id} to database")
+                    logger.debug("Saving prediction %s to database", prediction_id)
                     save_to_db(
                         prediction_id,
                         json_input,
@@ -1047,13 +1052,14 @@ def process_prediction(prediction_id, json_input, created_at, app):
                     )
                 except Exception as db_error:
                     logger.error(
-                        f"Failed to save prediction {prediction_id} "
-                        f"to database: {db_error}",
+                        "Failed to save prediction %s to database: %s",
+                        prediction_id,
+                        db_error,
                         exc_info=True,
                     )
 
             # Update with full result
-            logger.debug(f"Updating cache with final result for {prediction_id}")
+            logger.debug("Updating cache with final result for %s", prediction_id)
             cache.update_prediction(
                 prediction_id,
                 {
@@ -1067,11 +1073,134 @@ def process_prediction(prediction_id, json_input, created_at, app):
                     "completed_at": datetime.now().isoformat(),
                 },
             )
-            logger.info(f"Prediction {prediction_id} fully processed and ready")
+            logger.info("Prediction %s fully processed and ready", prediction_id)
 
     except Exception as e:
-        logger.error(f"Error processing prediction {prediction_id}: {e}", exc_info=True)
+        logger.error(
+            "Error processing prediction %s: %s", prediction_id, e, exc_info=True
+        )
         cache.update_prediction(prediction_id, {"status": "error", "error": str(e)})
+
+
+def _save_detail_records(pred_id, items, category_label, ai_advice):
+    """Helper function to save prediction detail records."""
+    if not items:
+        return
+    logger.debug("Saving %d %s detail records", len(items), category_label)
+    for item in items:
+        fname = item["feature"]
+        detail = PredDetails(
+            pred_id=pred_id,
+            factor_name=fname,
+            factor_type=category_label,
+            impact_score=float(item["impact_score"]),
+        )
+        db.session.add(detail)
+        db.session.flush()
+
+        # The AI advice generation (get_ai_advice) strictly targets
+        # 'areas_for_improvement'. Strengths are positive attributes,
+        # so no advice or references are generated or stored for them.
+        if category_label == FACTOR_TYPE_IMPROVEMENT:
+            factor_data = {}
+            if isinstance(ai_advice, dict):
+                factors_map = ai_advice.get("factors", {})
+                if fname in factors_map:
+                    factor_data = factors_map[fname]
+
+            for tip in factor_data.get("advices", []):
+                if tip:
+                    db.session.add(
+                        Advices(detail_id=detail.detail_id, advice_text=str(tip))
+                    )
+            for ref in factor_data.get("references", []):
+                if ref:
+                    db.session.add(
+                        References(detail_id=detail.detail_id, reference_link=str(ref))
+                    )
+
+
+def _update_daily_streak(streak_record, current_date):
+    """Helper function to update daily streak logic."""
+    last_daily = streak_record.last_daily_date
+
+    if last_daily is None:
+        # Fallback if null - start or re-initialize daily streak
+        streak_record.curr_daily_streak = 1
+        streak_record.last_daily_date = current_date
+    else:
+        if last_daily == current_date:
+            # Already checked in today
+            pass
+        elif last_daily == current_date - timedelta(days=1):
+            streak_record.curr_daily_streak += 1
+            streak_record.last_daily_date = current_date
+        else:
+            # Missed one or more days -> reset daily streak
+            streak_record.curr_daily_streak = 1
+            streak_record.last_daily_date = current_date
+
+
+def _update_weekly_streak(streak_record, current_date):
+    """Helper function to update weekly streak logic."""
+    last_weekly = streak_record.last_weekly_date
+
+    if last_weekly:
+        # Calculate the start of the week (Monday) for both dates
+        # This handles month/year boundaries correctly
+        start_of_current_week = current_date - timedelta(days=current_date.weekday())
+        start_of_last_checkin = last_weekly - timedelta(days=last_weekly.weekday())
+
+        days_diff = (start_of_current_week - start_of_last_checkin).days
+
+        if days_diff == 0:
+            pass
+        elif days_diff == 7:
+            streak_record.curr_weekly_streak += 1
+            streak_record.last_weekly_date = current_date
+        else:
+            streak_record.curr_weekly_streak = 1
+            streak_record.last_weekly_date = current_date
+    else:
+        streak_record.curr_weekly_streak = 1
+        streak_record.last_weekly_date = current_date
+
+
+def _parse_current_date(client_date_str):
+    """Parse date from client or fallback to UTC."""
+    if client_date_str:
+        try:
+            return datetime.strptime(client_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            print("⚠️ Invalid local_date format. Fallback to UTC.")
+            return datetime.utcnow().date()
+    else:
+        return datetime.utcnow().date()
+
+
+def _update_user_streaks(user_id, current_date):
+    """Helper function to update user streak records."""
+    with db.session.begin_nested():
+        streak_record = (
+            db.session.query(UserStreaks)
+            .filter(UserStreaks.user_id == user_id)
+            .with_for_update()
+            .one_or_none()
+        )
+
+        if not streak_record:
+            # New User: Start both streaks
+            new_streak = UserStreaks(
+                user_id=user_id,
+                curr_daily_streak=1,
+                last_daily_date=current_date,
+                curr_weekly_streak=1,
+                last_weekly_date=current_date,
+            )
+            db.session.add(new_streak)
+        else:
+            _update_daily_streak(streak_record, current_date)
+            _update_weekly_streak(streak_record, current_date)
 
 
 def save_to_db(
@@ -1087,7 +1216,7 @@ def save_to_db(
         return
 
     with current_app.app_context():
-        logger.info(f"Saving prediction {prediction_id} to database")
+        logger.info("Saving prediction %s to database", prediction_id)
 
         ai_desc_text = None
         if isinstance(ai_advice, dict):
@@ -1096,7 +1225,7 @@ def save_to_db(
         u_id = (
             uuid.UUID(json_input.get("user_id")) if json_input.get("user_id") else None
         )
-        logger.debug(f"Creating prediction record for user_id: {u_id}")
+        logger.debug("Creating prediction record for user_id: %s", u_id)
 
         new_pred = Predictions(
             pred_id=uuid.UUID(prediction_id),
@@ -1115,142 +1244,31 @@ def save_to_db(
         )
         db.session.add(new_pred)
         db.session.flush()
-        logger.debug(f"Prediction record created with ID: {prediction_id}")
+        logger.debug("Prediction record created with ID: %s", prediction_id)
 
         # Save details
-        def save_detail_list(items, category_label):
-            if not items:
-                return
-            logger.debug(f"Saving {len(items)} {category_label} detail records")
-            for item in items:
-                fname = item["feature"]
-                detail = PredDetails(
-                    pred_id=new_pred.pred_id,
-                    factor_name=fname,
-                    factor_type=category_label,
-                    impact_score=float(item["impact_score"]),
-                )
-                db.session.add(detail)
-                db.session.flush()
-
-                # The AI advice generation (get_ai_advice) strictly targets
-                # 'areas_for_improvement'. Strengths are positive attributes,
-                # so no advice or references are generated or stored for them.
-                if category_label == FACTOR_TYPE_IMPROVEMENT:
-                    factor_data = {}
-                    if isinstance(ai_advice, dict):
-                        factors_map = ai_advice.get("factors", {})
-                        if fname in factors_map:
-                            factor_data = factors_map[fname]
-
-                    for tip in factor_data.get("advices", []):
-                        if tip:
-                            db.session.add(
-                                Advices(
-                                    detail_id=detail.detail_id, advice_text=str(tip)
-                                )
-                            )
-                    for ref in factor_data.get("references", []):
-                        if ref:
-                            db.session.add(
-                                References(
-                                    detail_id=detail.detail_id, reference_link=str(ref)
-                                )
-                            )
-
-        save_detail_list(
-            wellness_analysis.get("areas_for_improvement", []), FACTOR_TYPE_IMPROVEMENT
+        _save_detail_records(
+            new_pred.pred_id,
+            wellness_analysis.get("areas_for_improvement", []),
+            FACTOR_TYPE_IMPROVEMENT,
+            ai_advice,
         )
-        save_detail_list(wellness_analysis.get("strengths", []), FACTOR_TYPE_STRENGTH)
+        _save_detail_records(
+            new_pred.pred_id,
+            wellness_analysis.get("strengths", []),
+            FACTOR_TYPE_STRENGTH,
+            ai_advice,
+        )
         logger.debug("Wellness factor details saved to database")
 
         # Update user streaks if user_id provided
         if u_id:
             try:
-                logger.debug(f"Updating streak data for user {u_id}")
-                client_date_str = json_input.get("local_date")
-
-                if client_date_str:
-                    try:
-                        current_date = datetime.strptime(
-                            client_date_str, "%Y-%m-%d"
-                        ).date()
-                    except ValueError:
-                        print("⚠️ Invalid local_date format. Fallback to UTC.")
-                        current_date = datetime.utcnow().date()
-                else:
-                    current_date = datetime.utcnow().date()
-
-                with db.session.begin_nested():
-                    streak_record = (
-                        db.session.query(UserStreaks)
-                        .filter(UserStreaks.user_id == u_id)
-                        .with_for_update()
-                        .one_or_none()
-                    )
-
-                    if not streak_record:
-                        # New User: Start both streaks
-                        new_streak = UserStreaks(
-                            user_id=u_id,
-                            curr_daily_streak=1,
-                            last_daily_date=current_date,
-                            curr_weekly_streak=1,
-                            last_weekly_date=current_date,
-                        )
-                        db.session.add(new_streak)
-
-                    else:
-                        # --- DAILY LOGIC ---
-                        last_daily = streak_record.last_daily_date
-
-                        if last_daily is None:
-                            # Fallback if null - start or re-initialize daily streak
-                            streak_record.curr_daily_streak = 1
-                            streak_record.last_daily_date = current_date
-                        else:
-                            if last_daily == current_date:
-                                # Already checked in today
-                                pass
-                            elif last_daily == current_date - timedelta(days=1):
-                                streak_record.curr_daily_streak += 1
-                                streak_record.last_daily_date = current_date
-                            else:
-                                # Missed one or more days -> reset daily streak
-                                streak_record.curr_daily_streak = 1
-                                streak_record.last_daily_date = current_date
-
-                        # --- WEEKLY LOGIC ---
-                        last_weekly = streak_record.last_weekly_date
-
-                        if last_weekly:
-                            # Calculate the start of the week (Monday) for both dates
-                            # This handles month/year boundaries correctly
-                            start_of_current_week = current_date - timedelta(
-                                days=current_date.weekday()
-                            )
-                            start_of_last_checkin = last_weekly - timedelta(
-                                days=last_weekly.weekday()
-                            )
-
-                            days_diff = (
-                                start_of_current_week - start_of_last_checkin
-                            ).days
-
-                            if days_diff == 0:
-                                pass
-                            elif days_diff == 7:
-                                streak_record.curr_weekly_streak += 1
-                                streak_record.last_weekly_date = current_date
-                            else:
-                                streak_record.curr_weekly_streak = 1
-                                streak_record.last_weekly_date = current_date
-                        else:
-                            streak_record.curr_weekly_streak = 1
-                            streak_record.last_weekly_date = current_date
-
-            except Exception as e:
-                print(f"⚠️ Streak update failed: {e}")
+                logger.debug("Updating streak data for user %s", u_id)
+                current_date = _parse_current_date(json_input.get("local_date"))
+                _update_user_streaks(u_id, current_date)
+            except Exception as exc:
+                print(f"⚠️ Streak update failed: {exc}")
                 print(
                     "   Details: Prediction still saved to database, "
                     "only streak tracking failed."

@@ -1,0 +1,36 @@
+[flake8]
+# Maximum line length
+max-line-length = 88
+
+# Exclude directories
+exclude = 
+    .git,
+    __pycache__,
+    .pytest_cache,
+    venv,
+    env,
+    .venv,
+    instance,
+    build,
+    dist,
+    *.egg-info,
+    node_modules
+
+# Error codes to ignore (standard PEP8 exceptions)
+ignore = 
+    E203,
+    E501,
+    W503,
+    W504
+
+# McCabe complexity threshold
+max-complexity = 15
+
+# Show source code for each error
+show-source = True
+
+# Count errors
+count = True
+
+# Print total number of errors
+statistics = True
