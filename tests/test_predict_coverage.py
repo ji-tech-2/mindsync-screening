@@ -7,8 +7,8 @@ save_to_db streak failure, weekly chart fresh calculation, daily suggestion bran
 
 import uuid
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock, Mock
+from datetime import datetime
+from unittest.mock import patch, MagicMock
 from flask import Flask
 
 
@@ -253,7 +253,9 @@ class TestProcessPredictionBranches:
     @patch("flaskr.predict.cache")
     @patch("flaskr.predict.model")
     @patch("flaskr.predict.ai")
-    def test_process_prediction_ai_advice_none(self, mock_ai, mock_model, mock_cache, app):
+    def test_process_prediction_ai_advice_none(
+        self, mock_ai, mock_model, mock_cache, app
+    ):
         """When AI returns None, fallback advice is used."""
         from flaskr.predict import process_prediction
 
@@ -279,7 +281,10 @@ class TestProcessPredictionBranches:
         assert mock_cache.update_prediction.called
         last_call = mock_cache.update_prediction.call_args[0][1]
         assert last_call["status"] == "ready"
-        assert "AI advice could not be generated" in last_call["result"]["advice"]["description"]
+        assert (
+            "AI advice could not be generated"
+            in last_call["result"]["advice"]["description"]
+        )
 
     @patch("flaskr.predict.cache")
     @patch("flaskr.predict.model")

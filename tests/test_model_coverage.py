@@ -5,11 +5,9 @@ _download_wandb_artifact, init_app branches, _calculate_loss, _check_convergence
 analyze_wellness_factors edge cases, and download_artifacts_from_wandb full path.
 """
 
-import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import patch, MagicMock, Mock
-from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 
 # ─────────────────────────────────────────────
@@ -89,8 +87,12 @@ class TestSGDVerbose:
         y = np.array([2.0, 4.0, 6.0, 8.0, 10.0])
 
         m = LinearRegressionRidge(
-            solver="sgd", verbose=True, alpha=0.001,
-            learning_rate=0.01, max_iter=10000, tol=1e-4
+            solver="sgd",
+            verbose=True,
+            alpha=0.001,
+            learning_rate=0.01,
+            max_iter=10000,
+            tol=1e-4,
         )
         m.fit(X, y)
         captured = capsys.readouterr()
@@ -468,7 +470,9 @@ class TestDownloadWandbArtifact:
 class TestDownloadArtifactsFullPath:
     """Test the full W&B download path with mocked wandb module."""
 
-    @patch.dict("os.environ", {"SKIP_WANDB_DOWNLOAD": "false", "WANDB_ENTITY": "myteam"})
+    @patch.dict(
+        "os.environ", {"SKIP_WANDB_DOWNLOAD": "false", "WANDB_ENTITY": "myteam"}
+    )
     @patch("flaskr.model.shutil")
     def test_download_with_entity_and_versioned_dir(self, mock_shutil, tmp_path):
         """Full download path with entity set and versioned sub-directory."""
@@ -533,8 +537,14 @@ class TestInitAppBranches:
     @patch("flaskr.model._schedule_version_check")
     @patch("flaskr.model.os.getenv")
     def test_init_app_validation_fails(
-        self, mock_getenv, mock_sched, mock_get_ver, mock_apply, mock_validate,
-        mock_load, mock_download
+        self,
+        mock_getenv,
+        mock_sched,
+        mock_get_ver,
+        mock_apply,
+        mock_validate,
+        mock_load,
+        mock_download,
     ):
         """When _validate_model returns False, model is still applied."""
         from flaskr.model import init_app
