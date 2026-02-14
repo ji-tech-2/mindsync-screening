@@ -29,6 +29,7 @@ urllib3==2.5.0
 
 # --- Production WSGI Server ---
 gunicorn==23.0.0
+psutil==6.1.1  # Memory monitoring for worker lifecycle hooks
 
 # --- Database & Cache ---
 valkey==6.1.1

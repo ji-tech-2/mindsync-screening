@@ -532,8 +532,13 @@ The application includes a production-ready Gunicorn configuration in `gunicorn_
 ```bash
 # Server Configuration
 PORT=5000                    # Server port (default: 5000)
-GUNICORN_WORKERS=4           # Number of worker processes
 LOG_LEVEL=info               # Logging level
+
+# Gunicorn Configuration (Memory-Optimized for ML Models)
+GUNICORN_WORKERS=2           # Number of worker processes (each loads full ML model)
+GUNICORN_THREADS=2           # Threads per worker (shared memory)
+GUNICORN_WORKER_CLASS=gthread # Use threaded workers for efficiency
+# See MEMORY-OPTIMIZATION.md for tuning guidance
 
 # Application Configuration
 GEMINI_API_KEY=xxx           # Required for AI features
