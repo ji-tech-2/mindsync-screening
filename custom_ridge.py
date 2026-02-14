@@ -487,4 +487,3 @@ class LinearRegressionRidge(BaseEstimator, RegressorMixin):
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
         return 1 - (ss_res / ss_tot)
-

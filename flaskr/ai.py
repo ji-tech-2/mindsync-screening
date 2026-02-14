@@ -39,7 +39,7 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
             for item in wellness_analysis_result["areas_for_improvement"][:3]
         ]
 
-    logger.debug(f"Top improvement factors: {top_factors_list}")
+    logger.debug("Top improvement factors: %s", top_factors_list)
 
     if top_factors_list:
         factors_inline_str = ", ".join(top_factors_list)  # noqa: E501
@@ -49,7 +49,7 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
         factors_bullet_list = "- General Wellness"
 
     # Prompt for Gemini
-    prompt = f"""
+    prompt = f"""  # nosec B608 - not SQL, just prompt template
     Role: You are 'MindSync', a mental health AI advisor.
 
     User Context:

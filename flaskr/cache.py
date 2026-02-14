@@ -17,7 +17,7 @@ def init_app(app):
     global valkey_client
 
     valkey_url = app.config.get("VALKEY_URL", "redis://localhost:6379")
-    logger.info(f"Initializing Valkey connection: {valkey_url}")
+    logger.info("Initializing Valkey connection: %s", valkey_url)
 
     try:
         valkey_client = valkey.from_url(
@@ -30,7 +30,7 @@ def init_app(app):
         valkey_client.ping()
         logger.info("Successfully connected to Valkey/Redis cache")
     except Exception as e:
-        logger.error(f"Failed to connect to Valkey: {e}")
+        logger.error("Failed to connect to Valkey: %s", e)
         logger.warning("Application will run without caching")
         valkey_client = None
 
@@ -44,9 +44,9 @@ def store_prediction(prediction_id, prediction_data):
     try:
         key = f"prediction:{prediction_id}"
         valkey_client.setex(key, 86400, json.dumps(prediction_data))  # 24 hours
-        logger.debug(f"Stored prediction {prediction_id} in cache with 24h TTL")
+        logger.debug("Stored prediction %s in cache with 24h TTL", prediction_id)
     except Exception as e:
-        logger.error(f"Valkey store error for {prediction_id}: {e}")
+        logger.error("Valkey store error for %s: %s", prediction_id, e)
         # Don't raise - allow operation to continue without cache
 
 
@@ -60,12 +60,12 @@ def fetch_prediction(prediction_id):
         key = f"prediction:{prediction_id}"
         data = valkey_client.get(key)
         if data:
-            logger.debug(f"Cache hit for prediction {prediction_id}")
+            logger.debug("Cache hit for prediction %s", prediction_id)
             return json.loads(data)
-        logger.debug(f"Cache miss for prediction {prediction_id}")
+        logger.debug("Cache miss for prediction %s", prediction_id)
         return None
     except Exception as e:
-        logger.error(f"Valkey fetch error for {prediction_id}: {e}")
+        logger.error("Valkey fetch error for %s: %s", prediction_id, e)
         return None
 
 
@@ -85,12 +85,12 @@ def update_prediction(prediction_id, update_data):
         existing = valkey_client.get(key)
 
         if not existing:
-            logger.warning(f"Prediction {prediction_id} not found in cache for update")
+            logger.warning("Prediction %s not found in cache for update", prediction_id)
             return
 
         data = json.loads(existing)
         data.update(update_data)
         valkey_client.setex(key, 86400, json.dumps(data))
-        logger.debug(f"Updated prediction {prediction_id} in cache")
+        logger.debug("Updated prediction %s in cache", prediction_id)
     except Exception as e:
-        logger.error(f"Valkey update error for {prediction_id}: {e}")
+        logger.error("Valkey update error for %s: %s", prediction_id, e)

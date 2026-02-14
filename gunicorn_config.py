@@ -22,14 +22,18 @@ backlog = 2048
 # Default: 2 workers with 2 threads each = 4 concurrent requests
 # Adjust GUNICORN_WORKERS and GUNICORN_THREADS based on your memory
 workers = int(os.getenv("GUNICORN_WORKERS", "2"))  # Conservative default
-worker_class = os.getenv("GUNICORN_WORKER_CLASS", "gthread")  # Use threads for memory efficiency
+worker_class = os.getenv(
+    "GUNICORN_WORKER_CLASS", "gthread"
+)  # Use threads for memory efficiency
 worker_connections = 1000
 
 # Threading - Each worker can handle multiple requests via threads (shared memory!)
 threads = int(os.getenv("GUNICORN_THREADS", "2"))  # 2 threads per worker
 
 # Worker Lifecycle - Aggressive recycling to prevent memory bloat
-max_requests = int(os.getenv("GUNICORN_MAX_REQUESTS", "500"))  # Restart after 500 requests
+max_requests = int(
+    os.getenv("GUNICORN_MAX_REQUESTS", "500")
+)  # Restart after 500 requests
 max_requests_jitter = 50  # Randomize restart to avoid thundering herd
 timeout = 120  # Request timeout (ML inference can be slow)
 keepalive = 5  # Keep-alive timeout
@@ -59,8 +63,12 @@ proc_name = "mindsync-model-flask"
 def on_starting(server):
     """Called just before the master process is initialized."""
     server.log.info("🚀 Starting Gunicorn server")
-    server.log.info(f"⚙️  Configuration: {workers} workers × {threads} threads = {workers * threads} concurrent requests")
-    server.log.info(f"💾 Memory optimization: worker_class={worker_class}, max_requests={max_requests}")
+    server.log.info(
+        f"⚙️  Configuration: {workers} workers × {threads} threads = {workers * threads} concurrent requests"
+    )
+    server.log.info(
+        f"💾 Memory optimization: worker_class={worker_class}, max_requests={max_requests}"
+    )
 
 
 def on_reload(server):
@@ -91,7 +99,9 @@ def worker_int(worker):
 
 def worker_abort(worker):
     """Called when a worker received the SIGABRT signal."""
-    worker.log.error(f"❌ Worker {worker.pid} received SIGABRT signal (likely OOM kill)")
+    worker.log.error(
+        f"❌ Worker {worker.pid} received SIGABRT signal (likely OOM kill)"
+    )
 
 
 def worker_exit(server, worker):
@@ -102,17 +112,20 @@ def worker_exit(server, worker):
 def pre_request(worker, req):
     """Called before processing each request."""
     # Log memory usage periodically (every 100 requests)
-    if hasattr(worker, 'request_count'):
+    if hasattr(worker, "request_count"):
         worker.request_count += 1
     else:
         worker.request_count = 1
-    
+
     if worker.request_count % 100 == 0:
         try:
             import psutil
+
             process = psutil.Process(worker.pid)
             memory_mb = process.memory_info().rss / 1024 / 1024
-            worker.log.info(f"📊 Worker {worker.pid} memory: {memory_mb:.1f} MB (after {worker.request_count} requests)")
+            worker.log.info(
+                f"📊 Worker {worker.pid} memory: {memory_mb:.1f} MB (after {worker.request_count} requests)"
+            )
         except ImportError:
             pass  # psutil not available
 

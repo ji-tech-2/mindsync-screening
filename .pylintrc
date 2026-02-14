@@ -1,0 +1,155 @@
+[MASTER]
+# Use multiple processes to speed up Pylint
+jobs=0
+
+# Pickle collected data for later comparisons
+persistent=yes
+
+# List of plugins (as comma separated values of python module names)
+load-plugins=
+
+# Discover python modules and packages in the file system subtree
+recursive=yes
+
+# Add files or directories matching the regex patterns to the ignore list
+ignore=CVS,.git,__pycache__,.pytest_cache,venv,env,.venv,node_modules,instance
+
+# Files or directories matching the regex patterns are skipped
+ignore-patterns=
+
+[MESSAGES CONTROL]
+# Enable the message, report, category or checker with the given id(s)
+enable=
+
+# Disable the message, report, category or checker with the given id(s)
+disable=
+    C0111,  # missing-docstring
+    R0903,  # too-few-public-methods
+    W0511,  # fixme
+    C0415,  # import-outside-toplevel (Flask pattern)
+    W0603,  # global-statement (needed for module-level state)
+    W0602,  # global-variable-not-assigned
+    W0718,  # broad-exception-caught (acceptable for error handling)
+    C0103,  # invalid-name (for mathematical variables)
+
+[REPORTS]
+# Set the output format
+output-format=text
+
+# Tells whether to display a full report or only the messages
+reports=yes
+
+# Activate the evaluation score
+score=yes
+
+[BASIC]
+# Good variable names which should always be accepted (includes math/ML conventions)
+good-names=i,j,k,ex,Run,_,id,db,app,ai,e,f,X,y,xi,yi,A,b,U,Vt,d,z,L,r,p,df
+
+# Regular expression matching correct constant names
+const-rgx=(([A-Z_][A-Z0-9_]*)|(__.*__))$
+
+# Regular expression matching correct function names
+function-rgx=[a-z_][a-z0-9_]{2,30}$
+
+# Regular expression matching correct method names
+method-rgx=[a-z_][a-z0-9_]{2,30}$
+
+# Regular expression matching correct variable names
+variable-rgx=[a-z_][a-z0-9_]{2,30}$
+
+# Regular expression matching correct attribute names
+attr-rgx=[a-z_][a-z0-9_]{2,30}$
+
+# Regular expression matching correct argument names
+argument-rgx=[a-z_][a-z0-9_]{2,30}$
+
+# Regular expression matching correct class attribute names
+class-attribute-rgx=([A-Za-z_][A-Za-z0-9_]{2,30}|(__.*__))$
+
+# Regular expression matching correct class names
+class-rgx=[A-Z_][a-zA-Z0-9]+$
+
+# Regular expression matching correct module names
+module-rgx=(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
+
+[FORMAT]
+# Maximum number of characters on a single line
+max-line-length=88
+
+# Maximum number of lines in a module
+max-module-lines=1500
+
+# String used as indentation unit
+indent-string='    '
+
+# Expected format of line ending
+expected-line-ending-format=
+
+[DESIGN]
+# Maximum number of arguments for function / method
+max-args=7
+
+# Maximum number of attributes for a class
+max-attributes=10
+
+# Maximum number of boolean expressions in an if statement
+max-bool-expr=5
+
+# Maximum number of branch for function / method body
+max-branches=15
+
+# Maximum number of locals for function / method body
+max-locals=20
+
+# Maximum number of parents for a class
+max-parents=7
+
+# Maximum number of public methods for a class
+max-public-methods=20
+
+# Maximum number of return / yield for function / method body
+max-returns=6
+
+# Maximum number of statements in function / method body
+max-statements=60
+
+# Minimum number of public methods for a class
+min-public-methods=0
+
+[SIMILARITIES]
+# Minimum lines number of a similarity
+min-similarity-lines=6
+
+# Ignore comments when computing similarities
+ignore-comments=yes
+
+# Ignore docstrings when computing similarities
+ignore-docstrings=yes
+
+# Ignore imports when computing similarities
+ignore-imports=yes
+
+# Signatures are removed from the similarity computation
+ignore-signatures=yes
+
+[TYPECHECK]
+# List of module names for which member attributes should not be checked
+ignored-modules=
+
+# List of classes names for which member attributes should not be checked
+ignored-classes=
+
+# List of decorators that produce context managers
+contextmanager-decorators=contextlib.contextmanager
+
+[MISCELLANEOUS]
+# List of note tags to take in consideration
+notes=FIXME,XXX,TODO
+
+[REFACTORING]
+# Maximum number of nested blocks for function / method body
+max-nested-blocks=5
+
+# Complete name of functions that never returns
+never-returning-functions=sys.exit,argparse.parse_error

@@ -28,17 +28,37 @@ COPY flaskr/ ./flaskr/
 FROM base AS test
 COPY tests/ ./tests/
 COPY pytest.ini .
+COPY pyproject.toml .
+COPY .flake8 .
+COPY .pylintrc .
+COPY .coveragerc .
 COPY requirements-dev.txt .
 
 # Install test dependencies from requirements-dev.txt
 RUN pip install --no-cache-dir -r requirements-dev.txt
 
-# Run linting
-RUN flake8 flaskr/ tests/ --max-line-length=88
-RUN black --check flaskr/ tests/
+# Run code quality checks
+RUN echo "=== Code Formatting Check ===" && \
+    black --check --diff flaskr/ tests/ *.py
 
-# Run tests
-RUN pytest tests/ -v --tb=short
+RUN echo "=== Flake8 Style & Complexity Check ===" && \
+    flake8 flaskr/ tests/ --config=.flake8 --statistics
+
+RUN echo "=== Pylint Code Quality Check ===" && \
+    pylint flaskr --rcfile=.pylintrc --fail-under=8.0
+
+RUN echo "=== Cyclomatic Complexity Check ===" && \
+    radon cc flaskr -a -nb --total-average
+
+RUN echo "=== Security Scan ===" && \
+    bandit -r flaskr -ll -f screen
+
+RUN echo "=== Code Duplication Check ===" && \
+    (pylint flaskr --disable=all --enable=duplicate-code --rcfile=.pylintrc || true)
+
+# Run tests with coverage (80% minimum)
+RUN echo "=== Running Tests with Coverage ===" && \
+    pytest tests/ -v --tb=short --cov=flaskr --cov-report=term-missing --cov-fail-under=80
 
 # Final Stage
 FROM base

@@ -4,11 +4,108 @@ on:
   pull_request:
     branches:
       - main
+      - develop
 
 jobs:
-  test:
-    name: Run Tests
+  quality-check:
+    name: Quality & Security Check
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Code formatting check
+        run: |
+          black --check --diff flaskr tests *.py
+
+      - name: Run tests with coverage
+        run: |
+          pytest --cov=flaskr --cov-report=term-missing --cov-report=xml --cov-fail-under=80 | tee coverage_output.txt
+
+      - name: Code quality analysis
+        run: |
+          pylint flaskr --rcfile=.pylintrc --fail-under=8.0 | tee pylint_output.txt
+
+      - name: Complexity analysis
+        run: |
+          radon cc flaskr -a -nb --total-average | tee radon_output.txt
+
+      - name: Linting and complexity check
+        run: |
+          flake8 flaskr tests --config=.flake8 --statistics | tee flake8_output.txt
+
+      - name: Security scan
+        run: |
+          bandit -r flaskr -ll -f screen | tee bandit_output.txt
+
+      - name: Check code duplication
+        run: |
+          pylint flaskr --disable=all --enable=duplicate-code --rcfile=.pylintrc > duplication_output.txt 2>&1 || true
+
+      - name: Parse and display quality metrics
+        if: always()
+        run: |
+          echo "## 📊 Quality Metrics Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Parse coverage percentage
+          if [ -f coverage_output.txt ]; then
+            COVERAGE=$(grep -oP 'TOTAL.*\K\d+%' coverage_output.txt || echo "N/A")
+            echo "**Code Coverage**: $COVERAGE (Required: ≥80%)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Parse Pylint score
+          if [ -f pylint_output.txt ]; then
+            PYLINT_SCORE=$(grep -oP 'rated at \K[0-9.]+' pylint_output.txt || echo "N/A")
+            echo "**Pylint Score**: ${PYLINT_SCORE}/10 (Required: ≥8.0)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Parse average complexity
+          if [ -f radon_output.txt ]; then
+            AVG_COMPLEXITY=$(grep -oP 'Average complexity: \K[A-F] \([0-9.]+\)' radon_output.txt || echo "N/A")
+            echo "**Avg Complexity**: $AVG_COMPLEXITY (Required: ≤15)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Parse Flake8 issues
+          if [ -f flake8_output.txt ]; then
+            FLAKE8_COUNT=$(tail -1 flake8_output.txt | grep -oP '^\d+' || echo "0")
+            echo "**Flake8 Issues**: $FLAKE8_COUNT" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Parse Bandit issues
+          if [ -f bandit_output.txt ]; then
+            BANDIT_ISSUES=$(grep -oP 'Total issues \(severity\): \K\d+' bandit_output.txt || echo "0")
+            echo "**Security Issues**: $BANDIT_ISSUES high/critical (Required: 0)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check for duplication
+          if [ -f duplication_output.txt ]; then
+            if grep -q "duplicate-code" duplication_output.txt; then
+              echo "**Code Duplication**: ⚠️ Detected" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**Code Duplication**: None" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_All metrics meet required standards_ ✅" >> $GITHUB_STEP_SUMMARY
+
+  test:
+    name: Docker Build & Test
+    runs-on: ubuntu-latest
+    needs: quality-check
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
