@@ -43,7 +43,10 @@ def download_artifacts_from_wandb(artifacts_path):
         artifact_name = "mindsync-model-smart"  # Match training artifact name
         artifact_version = os.getenv("ARTIFACT_VERSION", "latest")
 
-        logger.info(f"W&B Configuration: project={wandb_project}, entity={wandb_entity}, version={artifact_version}")
+        logger.info(
+            f"W&B Configuration: project={wandb_project},"
+            f"entity={wandb_entity}, version={artifact_version}"
+        )
 
         # Initialize W&B API
         api = wandb.Api()
@@ -738,8 +741,14 @@ def analyze_wellness_factors(user_df):
         areas_for_improvement.sort(key=lambda x: x["impact_score"], reverse=True)
         strengths.sort(key=lambda x: abs(x["impact_score"]), reverse=True)
 
-        logger.info(f"Wellness analysis complete: {len(areas_for_improvement)} improvements, {len(strengths)} strengths")
-        logger.debug(f"Top improvement area: {areas_for_improvement[0]['feature'] if areas_for_improvement else 'None'}")
+        logger.info(
+            f"Wellness analysis complete: {len(areas_for_improvement)}"
+            f"improvements, {len(strengths)} strengths"
+        )
+        logger.debug(
+            "Top improvement area:"
+            + (areas_for_improvement[0]["feature"] if areas_for_improvement else "None")
+        )
 
         return {
             "areas_for_improvement": areas_for_improvement[:5],
@@ -765,5 +774,7 @@ def categorize_mental_health_score(prediction_score):
     else:
         category = "healthy"
 
-    logger.debug(f"Mental health score {prediction_score:.2f} categorized as '{category}'")
+    logger.debug(
+        f"Mental health score {prediction_score:.2f} categorized as '{category}'"
+    )
     return category

@@ -27,7 +27,9 @@ TRUSTED_SOURCES = """  # noqa: E501
 
 def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key):
     """Generate personalized AI advice using Gemini."""
-    logger.info(f"Generating AI advice for category: {category}, score: {prediction_score:.2f}")
+    logger.info(
+        f"Generating AI advice for category: {category}, score: {prediction_score:.2f}"
+    )
 
     # Extract top factors
     top_factors_list = []
@@ -36,7 +38,7 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
             item["feature"]
             for item in wellness_analysis_result["areas_for_improvement"][:3]
         ]
-    
+
     logger.debug(f"Top improvement factors: {top_factors_list}")
 
     if top_factors_list:

@@ -42,7 +42,7 @@ bp = Blueprint("predict", __name__, url_prefix="/")
 def predict():
     """Main prediction endpoint - returns prediction_id immediately."""
     logger.info("Received POST request to /predict")
-    
+
     if model.model is None:
         logger.error("Model not loaded - cannot process prediction")
         return jsonify({"error": "Model failed to load. Check server logs."}), 500
@@ -69,7 +69,10 @@ def predict():
 
     try:
         json_input = request.get_json()
-        logger.debug(f"Received prediction input with keys: {list(json_input.keys()) if json_input else 'None'}")
+        logger.debug(
+            "Received prediction input with keys: "
+            + (str(list(json_input.keys())) if json_input else "None")
+        )
 
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
@@ -191,7 +194,10 @@ def get_result(prediction_id):
             )
 
         elif status == "error":
-            logger.error(f"Prediction {prediction_id} encountered an error: {prediction_data.get('error')}")
+            logger.error(
+                f"Prediction {prediction_id} encountered an error: "
+                + str(prediction_data.get("error"))
+            )
             return (
                 jsonify(
                     {
@@ -206,7 +212,9 @@ def get_result(prediction_id):
 
     # Fallback to database if enabled
     if current_app.config.get("DB_DISABLED", False):
-        logger.warning(f"Prediction {prediction_id} not found in cache and DB is disabled")
+        logger.warning(
+            f"Prediction {prediction_id} not found in cache and DB is disabled"
+        )
         return (
             jsonify(
                 {
@@ -246,7 +254,10 @@ def advice():
     logger.info("Received POST request to /advice")
     try:
         json_input = request.get_json()
-        logger.debug(f"Advice request input keys: {list(json_input.keys()) if json_input else 'None'}")
+        logger.debug(
+            "Advice request input keys:"
+            + (str(list(json_input.keys())) if json_input else "None")
+        )
 
         prediction_score = json_input.get("prediction_score")
         if prediction_score is None:
@@ -268,7 +279,9 @@ def advice():
                 400,
             )
 
-        logger.info(f"Generating advice for score: {prediction_score}, category: {category}")
+        logger.info(
+            f"Generating advice for score: {prediction_score}, category: {category}"
+        )
         api_key = current_app.config.get("GEMINI_API_KEY")
         ai_advice = ai.get_ai_advice(prediction_score, category, analysis, api_key)
 
@@ -313,7 +326,9 @@ def get_streak(user_id):
             logger.info(f"Streak data found for user {user_id}")
             return jsonify({"status": "success", "data": streak_record.to_dict()}), 200
         else:
-            logger.info(f"No streak record found for user {user_id}, returning defaults")
+            logger.info(
+                f"No streak record found for user {user_id}, returning defaults"
+            )
             # If no record exists, return default 0 values (User hasn't started yet)
             return (
                 jsonify(
@@ -966,7 +981,9 @@ def process_prediction(prediction_id, json_input, created_at, app):
             logger.debug(f"Analyzing wellness factors for {prediction_id}")
             wellness_analysis = model.analyze_wellness_factors(df)
             if not wellness_analysis:
-                logger.warning(f"Wellness analysis failed for {prediction_id}, using fallback")
+                logger.warning(
+                    f"Wellness analysis failed for {prediction_id}, using fallback"
+                )
                 wellness_analysis = {"areas_for_improvement": [], "strengths": []}
             else:
                 logger.debug(f"Wellness analysis complete for {prediction_id}")
@@ -974,7 +991,9 @@ def process_prediction(prediction_id, json_input, created_at, app):
             mental_health_category = model.categorize_mental_health_score(
                 prediction_score
             )
-            logger.info(f"Mental health category for {prediction_id}: {mental_health_category}")
+            logger.info(
+                f"Mental health category for {prediction_id}: {mental_health_category}"
+            )
 
             # Store partial result
             logger.debug(f"Storing partial result for {prediction_id}")
@@ -1003,7 +1022,9 @@ def process_prediction(prediction_id, json_input, created_at, app):
             )
 
             if not ai_advice or not isinstance(ai_advice, dict):
-                logger.warning(f"AI advice generation failed for {prediction_id}, using fallback")
+                logger.warning(
+                    f"AI advice generation failed for {prediction_id}, using fallback"
+                )
                 ai_advice = {
                     "factors": {},
                     "description": "AI advice could not be generated at this time.",
@@ -1021,9 +1042,15 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         wellness_analysis,
                         ai_advice,
                     )
-                    logger.info(f"Prediction {prediction_id} saved to database successfully")
+                    logger.info(
+                        f"Prediction {prediction_id} saved to database successfully"
+                    )
                 except Exception as db_error:
-                    logger.error(f"Failed to save prediction {prediction_id} to database: {db_error}", exc_info=True)
+                    logger.error(
+                        f"Failed to save prediction {prediction_id} "
+                        f"to database: {db_error}",
+                        exc_info=True,
+                    )
 
             # Update with full result
             logger.debug(f"Updating cache with final result for {prediction_id}")
