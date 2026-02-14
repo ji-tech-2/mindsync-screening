@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY artifacts/ ./artifacts/
 COPY wsgi.py .
 COPY gunicorn_config.py .
+COPY custom_ridge.py .
 COPY flaskr/ ./flaskr/
 
 # Test Stage
