@@ -1009,6 +1009,9 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 f"Mental health category for {prediction_id}: {mental_health_category}"
             )
 
+            # BENCHMARK: End timing - result ready to send to frontend
+            total_time_to_frontend = (time.time() - ridge_start) * 1000  # Convert to ms
+
             # Store partial result
             logger.debug("Storing partial result for %s", prediction_id)
             cache.store_prediction(
@@ -1031,8 +1034,6 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 },
             )
 
-            # BENCHMARK: End timing - result ready to send to frontend
-            total_time_to_frontend = (time.time() - ridge_start) * 1000  # Convert to ms
             logger.info("Partial result stored and ready for %s", prediction_id)
             logger.info(
                 "⏱️  [BENCHMARK] Ridge prediction → Frontend response ready: %.2f ms",
