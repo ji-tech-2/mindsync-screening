@@ -1020,6 +1020,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         "health_level": mental_health_category,
                         "wellness_analysis": wellness_analysis,
                         "advice": None,
+                        "timing": {
+                            "ridge_prediction_ms": round(ridge_prediction_time, 2),
+                            "total_to_frontend_ms": round(total_time_to_frontend, 2),
+                        },
                     },
                     "created_at": (
                         created_at if created_at else datetime.now().isoformat()
@@ -1085,6 +1089,10 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         "health_level": mental_health_category,
                         "wellness_analysis": wellness_analysis,
                         "advice": ai_advice,
+                        "timing": {
+                            "ridge_prediction_ms": round(ridge_prediction_time, 2),
+                            "total_to_frontend_ms": round(total_time_to_frontend, 2),
+                        },
                     },
                     "completed_at": datetime.now().isoformat(),
                 },
