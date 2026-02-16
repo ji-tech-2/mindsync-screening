@@ -214,20 +214,32 @@ class TestStreakEndpoint:
         json_data = response.get_json()
         assert "Invalid user_id format" in json_data["error"]
 
-    @patch("flaskr.predict.UserStreaks")
-    def test_streak_no_record(self, mock_streaks, client, app):
-        """Test streak endpoint when no record exists."""
+    @patch("flaskr.predict.Predictions")
+    def test_streak_no_predictions(self, mock_predictions, client, app):
+        """Test streak endpoint when no predictions exist."""
         user_id = str(uuid.uuid4())
 
         with app.app_context():
-            mock_streaks.query.get.return_value = None
+            mock_predictions.query.filter_by.return_value.all.return_value = []
 
             response = client.get(f"/streak/{user_id}")
 
             assert response.status_code == 200
             json_data = response.get_json()
             assert json_data["status"] == "success"
-            assert json_data["data"]["daily"]["current"] == 0
+            assert "daily" in json_data["data"]
+            assert "weekly" in json_data["data"]
+            assert "current_streak" in json_data["data"]
+            # Daily should have 7 entries (Mon-Sun)
+            assert len(json_data["data"]["daily"]) == 7
+            # Weekly should have 7 entries (last 7 weeks)
+            assert len(json_data["data"]["weekly"]) == 7
+            # All should have has_screening = False
+            assert all(not day["has_screening"] for day in json_data["data"]["daily"])
+            assert all(not week["has_screening"] for week in json_data["data"]["weekly"])
+            # Current streaks should be 0
+            assert json_data["data"]["current_streak"]["daily"] == 0
+            assert json_data["data"]["current_streak"]["weekly"] == 0
 
     def test_streak_db_disabled(self, client, app):
         """Test streak endpoint when database is disabled."""
