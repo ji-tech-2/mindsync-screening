@@ -79,6 +79,8 @@ def predict():
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
         created_at = datetime.now().isoformat()
+        # Capture start timestamp for end-to-end latency tracking
+        start_ts = time.time()
         logger.info("Created prediction request with ID: %s", prediction_id)
 
         # Initialize status as processing
@@ -100,6 +102,7 @@ def predict():
                 prediction_id,
                 json_input,
                 created_at,
+                start_ts,
                 current_app._get_current_object(),
             ),
         )
@@ -1063,7 +1066,7 @@ def format_db_output(data):
     }
 
 
-def process_prediction(prediction_id, json_input, created_at, app):
+def process_prediction(prediction_id, json_input, created_at, start_ts, app):
     """Background task for processing prediction."""
     logger.info("Background processing started for prediction %s", prediction_id)
     try:
@@ -1109,6 +1112,9 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 f"Mental health category for {prediction_id}: {mental_health_category}"
             )
 
+            # Calculate server processing time from request start to data ready
+            server_processing_ms = (time.time() - start_ts) * 1000
+
             # Store partial result
             logger.debug("Storing partial result for %s", prediction_id)
             cache.store_prediction(
@@ -1122,7 +1128,8 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         "advice": None,
                         "timing": {
                             "ridge_prediction_ms": round(ridge_prediction_time, 2),
-                            "total_to_frontend_ms": None,  # Will be updated below
+                            "server_processing_ms": round(server_processing_ms, 2),
+                            "start_timestamp": start_ts,
                         },
                     },
                     "created_at": (
@@ -1150,7 +1157,8 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         "advice": None,
                         "timing": {
                             "ridge_prediction_ms": round(ridge_prediction_time, 2),
-                            "total_to_frontend_ms": round(total_time_to_frontend, 2),
+                            "server_processing_ms": round(server_processing_ms, 2),
+                            "start_timestamp": start_ts,
                         },
                     },
                 },
@@ -1208,7 +1216,8 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         "advice": ai_advice,
                         "timing": {
                             "ridge_prediction_ms": round(ridge_prediction_time, 2),
-                            "total_to_frontend_ms": round(total_time_to_frontend, 2),
+                            "server_processing_ms": round(server_processing_ms, 2),
+                            "start_timestamp": start_ts,
                         },
                     },
                     "completed_at": datetime.now().isoformat(),
