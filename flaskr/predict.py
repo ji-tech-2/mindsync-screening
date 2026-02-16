@@ -5,6 +5,7 @@ Prediction routes and business logic
 import uuid
 import threading
 import logging
+import time
 import pandas as pd
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
@@ -976,12 +977,18 @@ def process_prediction(prediction_id, json_input, created_at, app):
             logger.debug("Input converted to DataFrame with shape %s", df.shape)
 
             # Fast part: Prediction & Analysis
+            # BENCHMARK: Start timing Ridge prediction to frontend response
+            ridge_start = time.time()
+            
             logger.info("Running model prediction for %s", prediction_id)
             prediction = model.model.predict(df)
             prediction_score = float(prediction[0])
+            
+            ridge_prediction_time = (time.time() - ridge_start) * 1000  # Convert to ms
             logger.info(
                 "Prediction score for %s: %.2f", prediction_id, prediction_score
             )
+            logger.info("⏱️  [BENCHMARK] Ridge prediction: %.2f ms", ridge_prediction_time)
 
             logger.debug("Analyzing wellness factors for %s", prediction_id)
             wellness_analysis = model.analyze_wellness_factors(df)
@@ -1017,7 +1024,11 @@ def process_prediction(prediction_id, json_input, created_at, app):
                     ),
                 },
             )
+            
+            # BENCHMARK: End timing - result ready to send to frontend
+            total_time_to_frontend = (time.time() - ridge_start) * 1000  # Convert to ms
             logger.info("Partial result stored and ready for %s", prediction_id)
+            logger.info("⏱️  [BENCHMARK] Ridge prediction → Frontend response ready: %.2f ms", total_time_to_frontend)
 
             # Slow part: Gemini AI
             logger.info("Requesting AI advice for %s", prediction_id)
