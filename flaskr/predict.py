@@ -1034,7 +1034,6 @@ def process_prediction(prediction_id, json_input, created_at, app):
 
             # BENCHMARK: End timing - data has been sent to cache (frontend can now access it)
             total_time_to_frontend = (time.time() - total_start) * 1000  # Convert to ms
-            
             logger.info("Partial result stored and ready for %s", prediction_id)
             logger.info(
                 "⏱️  [BENCHMARK] Model.pkl → Data available to frontend: %.2f ms",
