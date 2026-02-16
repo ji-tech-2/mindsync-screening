@@ -297,7 +297,12 @@ def advice():
 
 @bp.route("/streak/<user_id>", methods=["GET"])
 def get_streak(user_id):
-    """Get current streak status (Daily & Weekly) for a user."""
+    """Get sparse streak data (Daily & Weekly) for a user.
+    
+    Returns:
+    - Daily: Mon-Sun of current week with screening status + current streak
+    - Weekly: Last 7 weeks with screening status + current streak
+    """
     logger.info("Received GET request to /streak/%s", user_id)
 
     if current_app.config.get("DB_DISABLED", False):
@@ -320,31 +325,100 @@ def get_streak(user_id):
         )
 
     try:
-        logger.debug("Querying streak data for user %s", user_id)
-        # Use existing database session
-        streak_record = UserStreaks.query.get(uuid.UUID(user_id))
-
-        if streak_record:
-            logger.info("Streak data found for user %s", user_id)
-            return jsonify({"status": "success", "data": streak_record.to_dict()}), 200
-        else:
-            logger.info(
-                f"No streak record found for user {user_id}, returning defaults"
+        logger.debug("Querying predictions for user %s", user_id)
+        user_uuid = uuid.UUID(user_id)
+        
+        # Get all predictions for this user
+        predictions = Predictions.query.filter_by(user_id=user_uuid).all()
+        prediction_dates = {pred.pred_date.date() for pred in predictions}
+        
+        # Calculate daily data (Mon-Sun of current week)
+        today = datetime.now().date()
+        # Get Monday of current week (0=Monday, 6=Sunday)
+        days_since_monday = today.weekday()
+        monday = today - timedelta(days=days_since_monday)
+        
+        daily_data = []
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for i in range(7):
+            current_day = monday + timedelta(days=i)
+            daily_data.append({
+                "date": current_day.isoformat(),
+                "label": day_names[i],
+                "has_screening": current_day in prediction_dates
+            })
+        
+        # Calculate weekly data (last 7 weeks)
+        # Week is defined as Monday-Sunday
+        weekly_data = []
+        for week_offset in range(6, -1, -1):  # 6 weeks ago to this week
+            week_monday = monday - timedelta(weeks=week_offset)
+            week_sunday = week_monday + timedelta(days=6)
+            
+            # Check if any prediction exists in this week
+            has_screening = any(
+                week_monday <= date <= week_sunday 
+                for date in prediction_dates
             )
-            # If no record exists, return default 0 values (User hasn't started yet)
-            return (
-                jsonify(
-                    {
-                        "status": "success",
-                        "data": {
-                            "user_id": user_id,
-                            "daily": {"current": 0, "last_date": None},
-                            "weekly": {"current": 0, "last_date": None},
-                        },
-                    }
-                ),
-                200,
+            
+            # Format: "Jan 6-12" or "Dec 30 - Jan 5" for cross-month weeks
+            if week_monday.month == week_sunday.month:
+                week_label = f"{week_monday.strftime('%b')} {week_monday.day}-{week_sunday.day}"
+            else:
+                week_label = (
+                    f"{week_monday.strftime('%b')} {week_monday.day} - "
+                    f"{week_sunday.strftime('%b')} {week_sunday.day}"
+                )
+            
+            weekly_data.append({
+                "week_start": week_monday.isoformat(),
+                "week_end": week_sunday.isoformat(),
+                "label": week_label,
+                "has_screening": has_screening
+            })
+        
+        # Calculate current daily streak
+        current_daily_streak = 0
+        last_daily_date = None
+        check_date = today
+        while check_date in prediction_dates:
+            current_daily_streak += 1
+            last_daily_date = check_date
+            check_date -= timedelta(days=1)
+        
+        # Calculate current weekly streak
+        current_weekly_streak = 0
+        last_weekly_date = None
+        check_week_monday = monday
+        while True:
+            check_week_sunday = check_week_monday + timedelta(days=6)
+            # Check if any prediction exists in this week
+            has_week_screening = any(
+                check_week_monday <= date <= check_week_sunday 
+                for date in prediction_dates
             )
+            if has_week_screening:
+                current_weekly_streak += 1
+                last_weekly_date = check_week_monday
+                check_week_monday -= timedelta(weeks=1)
+            else:
+                break
+        
+        logger.info("Streak data processed for user %s", user_id)
+        return jsonify({
+            "status": "success",
+            "data": {
+                "user_id": user_id,
+                "current_streak": {
+                    "daily": current_daily_streak,
+                    "daily_last_date": last_daily_date.isoformat() if last_daily_date else None,
+                    "weekly": current_weekly_streak,
+                    "weekly_last_date": last_weekly_date.isoformat() if last_weekly_date else None
+                },
+                "daily": daily_data,
+                "weekly": weekly_data
+            }
+        }), 200
 
     except Exception as e:
         logger.error(

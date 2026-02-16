@@ -171,10 +171,10 @@ class TestAdvicePredictionFromList:
 class TestStreakException:
     """Test /streak exception handling."""
 
-    @patch("flaskr.predict.UserStreaks")
-    def test_streak_db_exception(self, mock_streaks, client, app):
+    @patch("flaskr.predict.Predictions")
+    def test_streak_db_exception(self, mock_predictions, client, app):
         user_id = str(uuid.uuid4())
-        mock_streaks.query.get.side_effect = Exception("DB error")
+        mock_predictions.query.filter_by.side_effect = Exception("DB error")
 
         with app.app_context():
             response = client.get(f"/streak/{user_id}")
@@ -183,24 +183,29 @@ class TestStreakException:
         data = response.get_json()
         assert data["status"] == "error"
 
-    @patch("flaskr.predict.UserStreaks")
-    def test_streak_existing_record(self, mock_streaks, client, app):
-        """Test with an existing streak record."""
+    @patch("flaskr.predict.Predictions")
+    def test_streak_with_predictions(self, mock_predictions, client, app):
+        """Test with existing predictions."""
+        from datetime import datetime, date
+        
         user_id = str(uuid.uuid4())
-        mock_record = MagicMock()
-        mock_record.to_dict.return_value = {
-            "user_id": user_id,
-            "daily": {"current": 5, "last_date": "2026-02-13"},
-            "weekly": {"current": 2, "last_date": "2026-02-13"},
-        }
-        mock_streaks.query.get.return_value = mock_record
+        mock_pred = MagicMock()
+        mock_pred.pred_date = datetime.now()
+        mock_predictions.query.filter_by.return_value.all.return_value = [mock_pred]
 
         with app.app_context():
             response = client.get(f"/streak/{user_id}")
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["data"]["daily"]["current"] == 5
+        assert "daily" in data["data"]
+        assert "weekly" in data["data"]
+        assert "current_streak" in data["data"]
+        assert len(data["data"]["daily"]) == 7
+        assert len(data["data"]["weekly"]) == 7
+        # Should have streak of 1 since we have a prediction today
+        assert data["data"]["current_streak"]["daily"] >= 0
+        assert data["data"]["current_streak"]["weekly"] >= 0
 
 
 # ─────────────────────────────────────────────

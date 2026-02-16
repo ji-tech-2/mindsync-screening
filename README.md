@@ -332,6 +332,12 @@ Response: 200 OK (when ready)
 
 ### Get User Streak
 
+Returns sparse data showing whether the user took a screening on specific days/weeks, plus current streak counts:
+
+- **Daily**: Returns Mon-Sun of the current week
+- **Weekly**: Returns the last 7 weeks
+- **Current Streaks**: Daily and weekly consecutive streak counts
+
 ```
 GET /streak/<user_id>
 
@@ -340,14 +346,93 @@ Response: 200 OK
   "status": "success",
   "data": {
     "user_id": "550e8400-e29b-41d4-a716-446655440000",
-    "daily": {
-      "current": 5,
-      "last_date": "2026-02-02"
+    "current_streak": {
+      "daily": 5,
+      "daily_last_date": "2026-02-16",
+      "weekly": 2,
+      "weekly_last_date": "2026-02-10"
     },
-    "weekly": {
-      "current": 2,
-      "last_date": "2026-02-02"
-    }
+    "daily": [
+      {
+        "date": "2026-02-10",
+        "label": "Mon",
+        "has_screening": false
+      },
+      {
+        "date": "2026-02-11",
+        "label": "Tue",
+        "has_screening": true
+      },
+      {
+        "date": "2026-02-12",
+        "label": "Wed",
+        "has_screening": true
+      },
+      {
+        "date": "2026-02-13",
+        "label": "Thu",
+        "has_screening": false
+      },
+      {
+        "date": "2026-02-14",
+        "label": "Fri",
+        "has_screening": true
+      },
+      {
+        "date": "2026-02-15",
+        "label": "Sat",
+        "has_screening": false
+      },
+      {
+        "date": "2026-02-16",
+        "label": "Sun",
+        "has_screening": true
+      }
+    ],
+    "weekly": [
+      {
+        "week_start": "2025-12-29",
+        "week_end": "2026-01-04",
+        "label": "Dec 29 - Jan 4",
+        "has_screening": false
+      },
+      {
+        "week_start": "2026-01-05",
+        "week_end": "2026-01-11",
+        "label": "Jan 5-11",
+        "has_screening": true
+      },
+      {
+        "week_start": "2026-01-12",
+        "week_end": "2026-01-18",
+        "label": "Jan 12-18",
+        "has_screening": false
+      },
+      {
+        "week_start": "2026-01-19",
+        "week_end": "2026-01-25",
+        "label": "Jan 19-25",
+        "has_screening": true
+      },
+      {
+        "week_start": "2026-01-26",
+        "week_end": "2026-02-01",
+        "label": "Jan 26 - Feb 1",
+        "has_screening": false
+      },
+      {
+        "week_start": "2026-02-02",
+        "week_end": "2026-02-08",
+        "label": "Feb 2-8",
+        "has_screening": true
+      },
+      {
+        "week_start": "2026-02-09",
+        "week_end": "2026-02-15",
+        "label": "Feb 9-15",
+        "has_screening": true
+      }
+    ]
   }
 }
 ```
