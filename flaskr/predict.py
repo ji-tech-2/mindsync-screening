@@ -976,20 +976,21 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 df = pd.DataFrame(json_input)
             logger.debug("Input converted to DataFrame with shape %s", df.shape)
 
-            # Fast part: Prediction & Analysis
-            # BENCHMARK: Start timing Ridge prediction to frontend response
-            ridge_start = time.time()
+            # BENCHMARK: Start timing from model.pkl load/prediction to frontend
+            total_start = time.time()
 
+            # Fast part: Prediction & Analysis
             logger.info("Running model prediction for %s", prediction_id)
+            ridge_start = time.time()
             prediction = model.model.predict(df)
             prediction_score = float(prediction[0])
-
             ridge_prediction_time = (time.time() - ridge_start) * 1000  # Convert to ms
+
             logger.info(
                 "Prediction score for %s: %.2f", prediction_id, prediction_score
             )
             logger.info(
-                "⏱️  [BENCHMARK] Ridge prediction: %.2f ms", ridge_prediction_time
+                "⏱️  [BENCHMARK] Ridge prediction only: %.2f ms", ridge_prediction_time
             )
 
             logger.debug("Analyzing wellness factors for %s", prediction_id)
@@ -1009,9 +1010,6 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 f"Mental health category for {prediction_id}: {mental_health_category}"
             )
 
-            # BENCHMARK: End timing - result ready to send to frontend
-            total_time_to_frontend = (time.time() - ridge_start) * 1000  # Convert to ms
-
             # Store partial result
             logger.debug("Storing partial result for %s", prediction_id)
             cache.store_prediction(
@@ -1025,7 +1023,7 @@ def process_prediction(prediction_id, json_input, created_at, app):
                         "advice": None,
                         "timing": {
                             "ridge_prediction_ms": round(ridge_prediction_time, 2),
-                            "total_to_frontend_ms": round(total_time_to_frontend, 2),
+                            "total_to_frontend_ms": None,  # Will be updated below
                         },
                     },
                     "created_at": (
@@ -1034,10 +1032,29 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 },
             )
 
+            # BENCHMARK: End timing - data has been sent to cache (frontend can now access it)
+            total_time_to_frontend = (time.time() - total_start) * 1000  # Convert to ms
             logger.info("Partial result stored and ready for %s", prediction_id)
             logger.info(
-                "⏱️  [BENCHMARK] Ridge prediction → Frontend response ready: %.2f ms",
+                "⏱️  [BENCHMARK] Model.pkl → Data available to frontend: %.2f ms",
                 total_time_to_frontend,
+            )
+
+            # Update the timing in cache
+            cache.update_prediction(
+                prediction_id,
+                {
+                    "result": {
+                        "prediction_score": prediction_score,
+                        "health_level": mental_health_category,
+                        "wellness_analysis": wellness_analysis,
+                        "advice": None,
+                        "timing": {
+                            "ridge_prediction_ms": round(ridge_prediction_time, 2),
+                            "total_to_frontend_ms": round(total_time_to_frontend, 2),
+                        },
+                    },
+                },
             )
 
             # Slow part: Gemini AI
