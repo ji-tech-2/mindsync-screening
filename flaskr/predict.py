@@ -2,15 +2,16 @@
 Prediction routes and business logic
 """
 
-import uuid
-import threading
 import logging
+import threading
 import time
-import pandas as pd
+import uuid
 from datetime import datetime, timedelta
+
+import pandas as pd
 from flask import Blueprint, request, jsonify, current_app
-from sqlalchemy.orm import selectinload
 from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from . import model, cache, ai
 from .db import (
@@ -298,7 +299,7 @@ def advice():
 @bp.route("/streak/<user_id>", methods=["GET"])
 def get_streak(user_id):
     """Get sparse streak data (Daily & Weekly) for a user.
-    
+
     Returns:
     - Daily: Mon-Sun of current week with screening status + current streak
     - Weekly: Last 7 weeks with screening status + current streak
@@ -327,56 +328,61 @@ def get_streak(user_id):
     try:
         logger.debug("Querying predictions for user %s", user_id)
         user_uuid = uuid.UUID(user_id)
-        
+
         # Get all predictions for this user
         predictions = Predictions.query.filter_by(user_id=user_uuid).all()
         prediction_dates = {pred.pred_date.date() for pred in predictions}
-        
+
         # Calculate daily data (Mon-Sun of current week)
         today = datetime.now().date()
         # Get Monday of current week (0=Monday, 6=Sunday)
         days_since_monday = today.weekday()
         monday = today - timedelta(days=days_since_monday)
-        
+
         daily_data = []
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         for i in range(7):
             current_day = monday + timedelta(days=i)
-            daily_data.append({
-                "date": current_day.isoformat(),
-                "label": day_names[i],
-                "has_screening": current_day in prediction_dates
-            })
-        
+            daily_data.append(
+                {
+                    "date": current_day.isoformat(),
+                    "label": day_names[i],
+                    "has_screening": current_day in prediction_dates,
+                }
+            )
+
         # Calculate weekly data (last 7 weeks)
         # Week is defined as Monday-Sunday
         weekly_data = []
         for week_offset in range(6, -1, -1):  # 6 weeks ago to this week
             week_monday = monday - timedelta(weeks=week_offset)
             week_sunday = week_monday + timedelta(days=6)
-            
+
             # Check if any prediction exists in this week
             has_screening = any(
-                week_monday <= date <= week_sunday 
-                for date in prediction_dates
+                week_monday <= date <= week_sunday for date in prediction_dates
             )
-            
+
             # Format: "Jan 6-12" or "Dec 30 - Jan 5" for cross-month weeks
             if week_monday.month == week_sunday.month:
-                week_label = f"{week_monday.strftime('%b')} {week_monday.day}-{week_sunday.day}"
+                week_label = (
+                    f"{week_monday.strftime('%b')} {week_monday.day}-{week_sunday.day}"
+                )
             else:
                 week_label = (
                     f"{week_monday.strftime('%b')} {week_monday.day} - "
                     f"{week_sunday.strftime('%b')} {week_sunday.day}"
                 )
-            
-            weekly_data.append({
-                "week_start": week_monday.isoformat(),
-                "week_end": week_sunday.isoformat(),
-                "label": week_label,
-                "has_screening": has_screening
-            })
-        
+
+            weekly_data.append(
+                {
+                    "week_start": week_monday.isoformat(),
+                    "week_end": week_sunday.isoformat(),
+                    "label": week_label,
+                    "has_screening": has_screening,
+                }
+            )
+
         # Calculate current daily streak
         current_daily_streak = 0
         last_daily_date = None
@@ -385,7 +391,7 @@ def get_streak(user_id):
             current_daily_streak += 1
             last_daily_date = check_date
             check_date -= timedelta(days=1)
-        
+
         # Calculate current weekly streak
         current_weekly_streak = 0
         last_weekly_date = None
@@ -394,7 +400,7 @@ def get_streak(user_id):
             check_week_sunday = check_week_monday + timedelta(days=6)
             # Check if any prediction exists in this week
             has_week_screening = any(
-                check_week_monday <= date <= check_week_sunday 
+                check_week_monday <= date <= check_week_sunday
                 for date in prediction_dates
             )
             if has_week_screening:
@@ -403,22 +409,33 @@ def get_streak(user_id):
                 check_week_monday -= timedelta(weeks=1)
             else:
                 break
-        
+
         logger.info("Streak data processed for user %s", user_id)
-        return jsonify({
-            "status": "success",
-            "data": {
-                "user_id": user_id,
-                "current_streak": {
-                    "daily": current_daily_streak,
-                    "daily_last_date": last_daily_date.isoformat() if last_daily_date else None,
-                    "weekly": current_weekly_streak,
-                    "weekly_last_date": last_weekly_date.isoformat() if last_weekly_date else None
-                },
-                "daily": daily_data,
-                "weekly": weekly_data
-            }
-        }), 200
+        return (
+            jsonify(
+                {
+                    "status": "success",
+                    "data": {
+                        "user_id": user_id,
+                        "current_streak": {
+                            "daily": current_daily_streak,
+                            "daily_last_date": (
+                                last_daily_date.isoformat() if last_daily_date else None
+                            ),
+                            "weekly": current_weekly_streak,
+                            "weekly_last_date": (
+                                last_weekly_date.isoformat()
+                                if last_weekly_date
+                                else None
+                            ),
+                        },
+                        "daily": daily_data,
+                        "weekly": weekly_data,
+                    },
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         logger.error(
@@ -563,7 +580,7 @@ def get_weekly_critical_factors():
         query = (
             db.session.query(
                 PredDetails.factor_name,
-                func.count(PredDetails.factor_name).label("occurrence_count"),
+                func.count(PredDetails.factor_name).label("occurrence_count"),  # pylint: disable=not-callable
                 func.avg(PredDetails.impact_score).label("avg_impact_score"),
             )
             .join(Predictions, Predictions.pred_id == PredDetails.pred_id)
@@ -582,7 +599,7 @@ def get_weekly_critical_factors():
         # Group by factor and order by frequency
         results = (
             query.group_by(PredDetails.factor_name)
-            .order_by(func.count(PredDetails.factor_name).desc())
+            .order_by(func.count(PredDetails.factor_name).desc())  # pylint: disable=not-callable
             .limit(3)
             .all()
         )
@@ -601,7 +618,7 @@ def get_weekly_critical_factors():
             )
 
         # Get additional stats
-        total_predictions = db.session.query(func.count(Predictions.pred_id)).filter(
+        total_predictions = db.session.query(func.count(Predictions.pred_id)).filter(  # pylint: disable=not-callable
             Predictions.pred_date >= start_date, Predictions.pred_date <= end_date
         )
 
@@ -775,7 +792,7 @@ def get_daily_suggestion():
 
         # Get today's prediction count
         prediction_count = (
-            db.session.query(func.count(Predictions.pred_id))
+            db.session.query(func.count(Predictions.pred_id))  # pylint: disable=not-callable
             .filter(
                 Predictions.user_id == uuid.UUID(user_id),
                 Predictions.pred_date >= start_of_day,
@@ -1106,8 +1123,8 @@ def process_prediction(prediction_id, json_input, created_at, app):
                 },
             )
 
-            # BENCHMARK: End timing - data has been sent to cache (frontend can now access it)
-            total_time_to_frontend = (time.time() - total_start) * 1000  # Convert to ms
+            # BENCHMARK: End timing - sent to cache (frontend access)
+            total_time_to_frontend = (time.time() - total_start) * 1000
             logger.info("Partial result stored and ready for %s", prediction_id)
             logger.info(
                 "⏱️  [BENCHMARK] Model.pkl → Data available to frontend: %.2f ms",

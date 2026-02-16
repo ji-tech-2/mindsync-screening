@@ -236,7 +236,9 @@ class TestStreakEndpoint:
             assert len(json_data["data"]["weekly"]) == 7
             # All should have has_screening = False
             assert all(not day["has_screening"] for day in json_data["data"]["daily"])
-            assert all(not week["has_screening"] for week in json_data["data"]["weekly"])
+            assert all(
+                not week["has_screening"] for week in json_data["data"]["weekly"]
+            )
             # Current streaks should be 0
             assert json_data["data"]["current_streak"]["daily"] == 0
             assert json_data["data"]["current_streak"]["weekly"] == 0

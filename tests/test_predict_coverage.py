@@ -186,8 +186,8 @@ class TestStreakException:
     @patch("flaskr.predict.Predictions")
     def test_streak_with_predictions(self, mock_predictions, client, app):
         """Test with existing predictions."""
-        from datetime import datetime, date
-        
+        from datetime import datetime
+
         user_id = str(uuid.uuid4())
         mock_pred = MagicMock()
         mock_pred.pred_date = datetime.now()
