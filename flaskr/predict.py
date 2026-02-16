@@ -580,7 +580,9 @@ def get_weekly_critical_factors():
         query = (
             db.session.query(
                 PredDetails.factor_name,
-                func.count(PredDetails.factor_name).label("occurrence_count"),  # pylint: disable=not-callable
+                func.count(PredDetails.factor_name).label(
+                    "occurrence_count"
+                ),  # pylint: disable=not-callable
                 func.avg(PredDetails.impact_score).label("avg_impact_score"),
             )
             .join(Predictions, Predictions.pred_id == PredDetails.pred_id)
@@ -599,7 +601,9 @@ def get_weekly_critical_factors():
         # Group by factor and order by frequency
         results = (
             query.group_by(PredDetails.factor_name)
-            .order_by(func.count(PredDetails.factor_name).desc())  # pylint: disable=not-callable
+            .order_by(
+                func.count(PredDetails.factor_name).desc()
+            )  # pylint: disable=not-callable
             .limit(3)
             .all()
         )
@@ -618,7 +622,9 @@ def get_weekly_critical_factors():
             )
 
         # Get additional stats
-        total_predictions = db.session.query(func.count(Predictions.pred_id)).filter(  # pylint: disable=not-callable
+        total_predictions = db.session.query(
+            func.count(Predictions.pred_id)
+        ).filter(  # pylint: disable=not-callable
             Predictions.pred_date >= start_date, Predictions.pred_date <= end_date
         )
 
@@ -792,7 +798,9 @@ def get_daily_suggestion():
 
         # Get today's prediction count
         prediction_count = (
-            db.session.query(func.count(Predictions.pred_id))  # pylint: disable=not-callable
+            db.session.query(
+                func.count(Predictions.pred_id)
+            )  # pylint: disable=not-callable
             .filter(
                 Predictions.user_id == uuid.UUID(user_id),
                 Predictions.pred_date >= start_of_day,
