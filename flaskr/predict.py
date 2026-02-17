@@ -56,7 +56,7 @@ def get_jwt_identity():
     Extract user_id (sub) from JWT in httpOnly cookie.
     Returns user_id (str) or None if invalid/missing.
     """
-    token = request.cookies.get("auth_token")
+    token = request.cookies.get("jwt")
     if not token:
         return None
 
