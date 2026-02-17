@@ -1,8 +1,10 @@
 # --- Direct Imports ---
-Flask==3.1.2
+Flask==3.0.2
 pandas==2.2.3
 numpy==1.26.4
 requests==2.32.5
+PyJWT==2.8.0
+cryptography==42.0.5
 
 # --- AI & Environment ---
 google-genai==1.57.0

@@ -48,6 +48,7 @@ jobs:
               -e WANDB_API_KEY="${{ secrets.WANDB_API_KEY }}" \
               -e WANDB_ENTITY="${{ secrets.WANDB_ENTITY }}" \
               -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+              -e JWT_PUBLIC_KEY="${{ secrets.JWT_PUBLIC_KEY }}" \
               -e VALKEY_URL="${{ secrets.VALKEY_URL }}" \
               ${{ env.IMAGE_NAME }}:latest
 
