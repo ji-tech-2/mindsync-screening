@@ -202,16 +202,21 @@ def predict():
         guest_id = None
 
         if not user_id:
-            # Fallback to Guest ID
-            raw_ip = request.headers.get("X-Real-IP", request.remote_addr)
-            if not raw_ip:
-                logger.warning("No IP address found for guest user")
-                return jsonify({"error": "Unable to determine client identity"}), 400
-
-            # nosec B324: MD5 used for ID generation, not security
-            ip_hash = hashlib.md5(raw_ip.encode(), usedforsecurity=False).hexdigest()
-            guest_id = str(uuid.UUID(hex=ip_hash))
-            logger.info("Guest user identified: %s", guest_id)
+            # Try to get guest_id from cookie
+            guest_id = request.cookies.get("guest_id")
+            
+            if guest_id:
+                # Validate that it's a proper UUID
+                if not is_valid_uuid(guest_id):
+                    logger.warning("Invalid guest_id format in cookie: %s", guest_id)
+                    guest_id = str(uuid.uuid4())
+                    logger.info("Generated new guest_id: %s", guest_id)
+                else:
+                    logger.info("Guest user identified from cookie: %s", guest_id)
+            else:
+                # No guest_id cookie found, generate new one
+                guest_id = str(uuid.uuid4())
+                logger.info("Generated new guest_id: %s", guest_id)
         else:
             logger.info("Authenticated user identified: %s", user_id)
 
@@ -294,14 +299,11 @@ def get_result(prediction_id):
     user_id = get_jwt_identity()
     guest_hash = None
     if not user_id:
-        raw_ip = request.headers.get("X-Real-IP", request.remote_addr)
-        if raw_ip:
-            # nosec B324: MD5 used for ID generation, not security
-            guest_hash = str(
-                uuid.UUID(
-                    hex=hashlib.md5(raw_ip.encode(), usedforsecurity=False).hexdigest()
-                )
-            )
+        # Try to get guest_id from cookie
+        guest_hash = request.cookies.get("guest_id")
+        if guest_hash and not is_valid_uuid(guest_hash):
+            logger.warning("Invalid guest_id format in cookie: %s", guest_hash)
+            guest_hash = None
 
     # Check cache first
     logger.debug("Checking cache for prediction %s", prediction_id)
