@@ -5,6 +5,7 @@ streak exceptions, history DB disabled/errors, process_prediction branches,
 save_to_db streak failure, weekly chart fresh calculation, daily suggestion branches.
 """
 
+import time
 import uuid
 import pytest
 from datetime import datetime
@@ -19,6 +20,7 @@ def app():
     app.config["TESTING"] = True
     app.config["DB_DISABLED"] = False
     app.config["GEMINI_API_KEY"] = "test-api-key"
+    app.config["JWT_PUBLIC_KEY"] = "test-public-key"
 
     from flaskr import db as db_module
 
@@ -169,7 +171,7 @@ class TestAdvicePredictionFromList:
 
 
 class TestStreakException:
-    """Test /streak exception handling."""
+    """Test /streak exception handling with JWT auth."""
 
     @patch("flaskr.predict.Predictions")
     def test_streak_db_exception(self, mock_predictions, client, app):
@@ -177,7 +179,8 @@ class TestStreakException:
         mock_predictions.query.filter_by.side_effect = Exception("DB error")
 
         with app.app_context():
-            response = client.get(f"/streak/{user_id}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/streak")
 
         assert response.status_code == 500
         data = response.get_json()
@@ -194,7 +197,8 @@ class TestStreakException:
         mock_predictions.query.filter_by.return_value.all.return_value = [mock_pred]
 
         with app.app_context():
-            response = client.get(f"/streak/{user_id}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/streak")
 
         assert response.status_code == 200
         data = response.get_json()
@@ -214,13 +218,14 @@ class TestStreakException:
 
 
 class TestHistoryDBDisabled:
-    """Test /history when DB is disabled."""
+    """Test /history when DB is disabled with JWT auth."""
 
     def test_history_db_disabled(self, client, app):
         uid = str(uuid.uuid4())
         with app.app_context():
             app.config["DB_DISABLED"] = True
-            response = client.get(f"/history/{uid}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+                response = client.get("/history")
 
         assert response.status_code == 503
         data = response.get_json()
@@ -228,14 +233,15 @@ class TestHistoryDBDisabled:
 
 
 class TestHistoryException:
-    """Test /history exception paths."""
+    """Test /history exception paths with JWT auth."""
 
     @patch("flaskr.predict.read_from_db")
     def test_history_read_error(self, mock_read, client):
         uid = str(uuid.uuid4())
         mock_read.return_value = {"status": "error", "error": "DB error"}
 
-        response = client.get(f"/history/{uid}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+            response = client.get("/history")
         assert response.status_code == 400
 
     @patch("flaskr.predict.read_from_db")
@@ -243,7 +249,8 @@ class TestHistoryException:
         uid = str(uuid.uuid4())
         mock_read.side_effect = Exception("Unexpected")
 
-        response = client.get(f"/history/{uid}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+            response = client.get("/history")
         assert response.status_code == 500
 
 
@@ -279,7 +286,10 @@ class TestProcessPredictionBranches:
                 str(uuid.uuid4()),
                 {"age": 25, "gender": "Male"},
                 datetime.now().isoformat(),
+                time.time(),
                 app,
+                str(uuid.uuid4()),
+                None,
             )
 
         # Should have updated with "ready" status despite AI failure
@@ -305,7 +315,10 @@ class TestProcessPredictionBranches:
                 str(uuid.uuid4()),
                 {"age": 25},
                 datetime.now().isoformat(),
+                time.time(),
                 app,
+                str(uuid.uuid4()),
+                None,
             )
 
         assert mock_cache.update_prediction.called
@@ -338,7 +351,10 @@ class TestProcessPredictionBranches:
                 str(uuid.uuid4()),
                 {"age": 25},
                 datetime.now().isoformat(),
+                time.time(),
                 app,
+                str(uuid.uuid4()),
+                None,
             )
 
         # Should still update cache with "ready"
@@ -369,7 +385,10 @@ class TestProcessPredictionBranches:
                 str(uuid.uuid4()),
                 [{"age": 25, "gender": "Male"}],
                 None,  # test created_at=None fallback
+                time.time(),
                 app,
+                str(uuid.uuid4()),
+                None,
             )
 
         last_call = mock_cache.update_prediction.call_args[0][1]
@@ -422,17 +441,19 @@ class TestSaveToDbStreakFailure:
 
 
 class TestWeeklyCriticalFactorsNoBranches:
-    """Cover exception branch in weekly-critical-factors."""
+    """Cover exception branch in weekly-critical-factors with JWT auth."""
 
     @patch("flaskr.predict.WeeklyCriticalFactors")
     @patch("flaskr.predict.db")
     def test_exception_rollback(self, mock_db, mock_wcf, client, app):
         """Exception triggers rollback."""
+        uid = str(uuid.uuid4())
         with app.app_context():
             # Raise before any Predictions comparison happens
             mock_wcf.query.filter_by.side_effect = Exception("boom")
 
-            response = client.get("/weekly-critical-factors")
+            with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+                response = client.get("/weekly-critical-factors")
 
         assert response.status_code == 500
         mock_db.session.rollback.assert_called()
@@ -444,56 +465,60 @@ class TestWeeklyCriticalFactorsNoBranches:
 
 
 class TestDailySuggestionBranches:
-    """Cover additional daily suggestion branches."""
+    """Cover additional daily suggestion branches with JWT auth."""
 
     @patch("flaskr.predict.DailySuggestions")
     @patch("flaskr.predict.db")
     def test_daily_suggestion_exception(self, mock_db, mock_ds, client, app):
         """Exception triggers rollback."""
+        uid = str(uuid.uuid4())
         with app.app_context():
-            uid = str(uuid.uuid4())
             mock_ds.query.filter_by.side_effect = Exception("boom")
-            response = client.get(f"/daily-suggestion?user_id={uid}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+                response = client.get("/daily-suggestion")
 
         assert response.status_code == 500
         mock_db.session.rollback.assert_called()
 
 
 class TestDailySuggestionDBDisabled:
-    """Test daily-suggestion when DB disabled."""
+    """Test daily-suggestion when DB disabled with JWT auth."""
 
     def test_db_disabled(self, client, app):
+        uid = str(uuid.uuid4())
         with app.app_context():
             app.config["DB_DISABLED"] = True
-            uid = str(uuid.uuid4())
-            response = client.get(f"/daily-suggestion?user_id={uid}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+                response = client.get("/daily-suggestion")
         assert response.status_code == 503
 
 
 # ─────────────────────────────────────────────
-#  /chart/weekly — fresh calculation and errors
+#  /weekly-chart-data — fresh calculation and errors
 # ─────────────────────────────────────────────
 
 
 class TestWeeklyChartFresh:
-    """Cover chart error/exception paths."""
+    """Cover chart error/exception paths with JWT auth."""
 
     @patch("flaskr.predict.WeeklyChartData")
     @patch("flaskr.predict.db")
     def test_weekly_chart_exception(self, mock_db, mock_chart, client, app):
         """Exception in chart endpoint triggers error response."""
+        uid = str(uuid.uuid4())
         with app.app_context():
-            uid = str(uuid.uuid4())
             mock_chart.query.filter_by.side_effect = Exception("boom")
-            response = client.get(f"/chart/weekly?user_id={uid}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+                response = client.get("/weekly-chart-data")
 
         assert response.status_code == 500
 
     def test_weekly_chart_db_disabled(self, client, app):
+        uid = str(uuid.uuid4())
         with app.app_context():
             app.config["DB_DISABLED"] = True
-            uid = str(uuid.uuid4())
-            response = client.get(f"/chart/weekly?user_id={uid}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=uid):
+                response = client.get("/weekly-chart-data")
         assert response.status_code == 503
 
 

@@ -2,15 +2,14 @@
 Prediction routes and business logic
 """
 
+import hashlib
 import logging
 import threading
 import time
 import uuid
-import hashlib
-import jwt
-import os
 from datetime import datetime, timedelta
 
+import jwt
 import pandas as pd
 from flask import Blueprint, request, jsonify, current_app
 from sqlalchemy import func
@@ -40,6 +39,7 @@ FACTOR_TYPE_STRENGTH = "strengths"
 #   AUTH HELPER FUNCS   #
 # ===================== #
 
+
 def _get_public_key():
     """Retrieve public key from config."""
     # Ensure newline format is correct if passed as single line string
@@ -48,7 +48,7 @@ def _get_public_key():
     if not key:
         logger.error("JWT_PUBLIC_KEY not configured")
         return None
-    return key.replace('\\n', '\n')
+    return key.replace("\\n", "\n")
 
 
 def get_jwt_identity():
@@ -59,7 +59,7 @@ def get_jwt_identity():
     token = request.cookies.get("auth_token")
     if not token:
         return None
-    
+
     public_key = _get_public_key()
     if not public_key:
         return None
@@ -75,11 +75,84 @@ def get_jwt_identity():
         logger.warning("Invalid JWT token: %s", e)
         return None
 
+
 def hash_ip(ip_address):
     """Create a hash of the IP address for guest identification."""
     if not ip_address:
         return None
-    return hashlib.sha256(ip_address.encode('utf-8')).hexdigest()
+    return hashlib.sha256(ip_address.encode("utf-8")).hexdigest()
+
+
+def _check_ownership(stored_user_id, stored_guest_id, current_user_id, current_guest):
+    """Check if current user owns the prediction."""
+    if stored_user_id and str(stored_user_id) == str(current_user_id):
+        return True
+    if stored_guest_id and str(stored_guest_id) == str(current_guest):
+        return True
+    return False
+
+
+def _build_status_response(prediction_data, status, prediction_id):
+    """Build response based on prediction status."""
+    if status == "processing":
+        logger.debug("Prediction %s still processing", prediction_id)
+        return (
+            jsonify(
+                {
+                    "status": "processing",
+                    "message": (
+                        "Prediction is still being processed. "
+                        "Please try again in a moment."
+                    ),
+                }
+            ),
+            202,
+        )
+    if status == "partial":
+        logger.info("Returning partial result for %s", prediction_id)
+        return (
+            jsonify(
+                {
+                    "status": "partial",
+                    "result": prediction_data["result"],
+                    "message": "Prediction ready. AI advice still processing.",
+                    "created_at": prediction_data["created_at"],
+                }
+            ),
+            200,
+        )
+    if status == "ready":
+        logger.info("Returning complete result for %s", prediction_id)
+        return (
+            jsonify(
+                {
+                    "status": "ready",
+                    "result": prediction_data["result"],
+                    "created_at": prediction_data["created_at"],
+                    "completed_at": prediction_data["completed_at"],
+                }
+            ),
+            200,
+        )
+    if status == "error":
+        logger.error(
+            "Prediction %s encountered an error: %s",
+            prediction_id,
+            str(prediction_data.get("error")),
+        )
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": prediction_data["error"],
+                    "created_at": prediction_data["created_at"],
+                    "completed_at": prediction_data.get("completed_at"),
+                }
+            ),
+            500,
+        )
+    return None
+
 
 bp = Blueprint("predict", __name__, url_prefix="/")
 
@@ -127,7 +200,6 @@ def predict():
         # Authentication / Guest Logic
         user_id = get_jwt_identity()
         guest_id = None
-        is_guest = False
 
         if not user_id:
             # Fallback to Guest ID
@@ -135,10 +207,10 @@ def predict():
             if not raw_ip:
                 logger.warning("No IP address found for guest user")
                 return jsonify({"error": "Unable to determine client identity"}), 400
-            
-            ip_hash = hashlib.md5(raw_ip.encode()).hexdigest()
+
+            # nosec B324: MD5 used for ID generation, not security
+            ip_hash = hashlib.md5(raw_ip.encode(), usedforsecurity=False).hexdigest()
             guest_id = str(uuid.UUID(hex=ip_hash))
-            is_guest = True
             logger.info("Guest user identified: %s", guest_id)
         else:
             logger.info("Authenticated user identified: %s", user_id)
@@ -158,7 +230,7 @@ def predict():
                 "result": None,
                 "created_at": created_at,
                 "user_id": user_id,
-                "guest_id": guest_id
+                "guest_id": guest_id,
             },
         )
         logger.debug("Initial status stored in cache for %s", prediction_id)
@@ -174,7 +246,7 @@ def predict():
                 start_ts,
                 current_app._get_current_object(),
                 user_id,
-                guest_id
+                guest_id,
             ),
         )
         thread.daemon = True
@@ -218,113 +290,55 @@ def get_result(prediction_id):
             400,
         )
 
-    # Check ownership
+    # Get current user/guest identity
     user_id = get_jwt_identity()
     guest_hash = None
     if not user_id:
         raw_ip = request.headers.get("X-Real-IP", request.remote_addr)
         if raw_ip:
-            guest_hash = str(uuid.UUID(hex=hashlib.md5(raw_ip.encode()).hexdigest()))
-    
+            # nosec B324: MD5 used for ID generation, not security
+            guest_hash = str(
+                uuid.UUID(
+                    hex=hashlib.md5(raw_ip.encode(), usedforsecurity=False).hexdigest()
+                )
+            )
+
     # Check cache first
     logger.debug("Checking cache for prediction %s", prediction_id)
     prediction_data = cache.fetch_prediction(prediction_id)
 
     if prediction_data:
-        # Verify ownership in cache
         cached_user_id = prediction_data.get("user_id")
         cached_guest_id = prediction_data.get("guest_id")
-        
-        is_owner = False
-        if cached_user_id and str(cached_user_id) == str(user_id):
-            is_owner = True
-        elif cached_guest_id and str(cached_guest_id) == str(guest_hash):
-            is_owner = True
-            
-        if not is_owner:
+
+        # Verify ownership
+        if not _check_ownership(cached_user_id, cached_guest_id, user_id, guest_hash):
             if cached_user_id or cached_guest_id:
                 logger.warning("Unauthorized access attempt to %s", prediction_id)
-                return jsonify({"error": "Unauthorized", "message": "You do not have permission to access this prediction."}), 403
+                return (
+                    jsonify(
+                        {
+                            "error": "Unauthorized",
+                            "message": "You do not have permission.",
+                        }
+                    ),
+                    403,
+                )
 
         status = prediction_data["status"]
         logger.debug("Cache hit for %s with status: %s", prediction_id, status)
 
-
-        if status == "processing":
-            logger.debug("Prediction %s still processing", prediction_id)
-            return (
-                jsonify(
-                    {
-                        "status": "processing",
-                        "message": (
-                            "Prediction is still being processed. "
-                            "Please try again in a moment."
-                        ),
-                    }
-                ),
-                202,
-            )
-
-        elif status == "partial":
-            logger.info("Returning partial result for %s", prediction_id)
-            return (
-                jsonify(
-                    {
-                        "status": "partial",
-                        "result": prediction_data["result"],
-                        "message": "Prediction ready. AI advice still processing.",
-                        "created_at": prediction_data["created_at"],
-                    }
-                ),
-                200,
-            )
-
-        elif status == "ready":
-            logger.info("Returning complete result for %s", prediction_id)
-            return (
-                jsonify(
-                    {
-                        "status": "ready",
-                        "result": prediction_data["result"],
-                        "created_at": prediction_data["created_at"],
-                        "completed_at": prediction_data["completed_at"],
-                    }
-                ),
-                200,
-            )
-
-        if status == "error":
-            logger.error(
-                "Prediction %s encountered an error: %s",
-                prediction_id,
-                str(prediction_data.get("error")),
-            )
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "error": prediction_data["error"],
-                        "created_at": prediction_data["created_at"],
-                        "completed_at": prediction_data.get("completed_at"),
-                    }
-                ),
-                500,
-            )
+        # Build response based on status
+        response = _build_status_response(prediction_data, status, prediction_id)
+        if response:
+            return response
 
     # Fallback to database if enabled
     if current_app.config.get("DB_DISABLED", False):
         logger.warning(
-            f"Prediction {prediction_id} not found in cache and DB is disabled"
+            "Prediction %s not found in cache and DB disabled", prediction_id
         )
-        return (
-            jsonify(
-                {
-                    "status": "not_found",
-                    "message": "Prediction ID not found (DB disabled).",
-                }
-            ),
-            404,
-        )
+        return jsonify({"status": "not_found", "message": "Not found."}), 404
 
     logger.debug("Cache miss for %s, checking database", prediction_id)
     db_result = read_from_db(prediction_id=prediction_id)
@@ -332,20 +346,22 @@ def get_result(prediction_id):
     if db_result.get("status") == "success":
         logger.info("Found prediction %s in database", prediction_id)
         data = db_result["data"]
-        
-        # Verify ownership in DB
         db_user_id = data.get("user_id")
         db_guest_id = data.get("guest_id")
-        
-        is_owner = False
-        if db_user_id and str(db_user_id) == str(user_id):
-            is_owner = True
-        elif db_guest_id and str(db_guest_id) == str(guest_hash):
-            is_owner = True
-            
-        if not is_owner and (db_user_id or db_guest_id):
-            logger.warning("Unauthorized access attempt to DB result %s", prediction_id)
-            return jsonify({"error": "Unauthorized", "message": "You do not have permission to access this prediction."}), 403
+
+        # Verify ownership in DB
+        if not _check_ownership(db_user_id, db_guest_id, user_id, guest_hash):
+            if db_user_id or db_guest_id:
+                logger.warning("Unauthorized DB access to %s", prediction_id)
+                return (
+                    jsonify(
+                        {
+                            "error": "Unauthorized",
+                            "message": "You do not have permission.",
+                        }
+                    ),
+                    403,
+                )
 
         return (
             jsonify(
@@ -415,7 +431,7 @@ def get_streak_route():
     user_id = get_jwt_identity()
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
-    
+
     logger.info("Received GET request to /streak for user %s", user_id)
     return get_streak(user_id)
 
@@ -569,7 +585,7 @@ def get_history():
     user_id = get_jwt_identity()
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
-    
+
     logger.info("Received GET request to /history for user %s", user_id)
 
     # Check DB Status
@@ -583,10 +599,10 @@ def get_history():
             ),
             503,
         )
-    
+
     # Use existing helper but modified to accept user_id
     # Wait, read_from_db logic was updated (or SHOULD be updated)
-    
+
     try:
         db_result = read_from_db(user_id=user_id)
         if db_result.get("status") == "success":
@@ -594,11 +610,11 @@ def get_history():
             formatted_history = []
             for item in db_result["data"]:
                 formatted_data = format_db_output(item)
-                
+
                 # Strip user_id/guest_id info from public item history response if not needed
                 # item["input_data"] is already there?
                 # format_db_output structures it nicely
-                
+
                 formatted_item = {
                     "prediction_id": item["prediction_id"],
                     "prediction_score": item["prediction_score"],
@@ -671,9 +687,12 @@ def get_weekly_critical_factors():
 
         # Check if cached data exists for this time period
         cached_query = WeeklyCriticalFactors.query.filter_by(
-            week_start=week_start, week_end=week_end, days=days, user_id=uuid.UUID(user_id)
+            week_start=week_start,
+            week_end=week_end,
+            days=days,
+            user_id=uuid.UUID(user_id),
         )
-        
+
         cached_data = cached_query.first()
 
         if cached_data:
@@ -840,7 +859,7 @@ def get_daily_suggestion():
         # Calculate today's date range (midnight to midnight) in UTC
         # pred_date is stored using datetime.utcnow, so we must query in UTC
         today = datetime.utcnow().date()
-        
+
         # Check if cached data exists for today
         cached_data = DailySuggestions.query.filter_by(
             user_id=uuid.UUID(user_id), date=today
@@ -958,6 +977,7 @@ def get_daily_suggestion():
 
     except Exception as e:
         print(f"Error in daily suggestion: {e}")
+        db.session.rollback()
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
@@ -969,7 +989,7 @@ def get_weekly_chart_data():
     user_id = get_jwt_identity()
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
-    
+
     # Check DB
     if current_app.config.get("DB_DISABLED", False):
         return (
@@ -1002,7 +1022,7 @@ def get_weekly_chart_data():
         start_date = today - timedelta(days=6)
         week_start = start_date
         week_end = today
-        
+
         # Check if cached data exists for this time period
         cached_data = WeeklyChartData.query.filter_by(
             user_id=uuid.UUID(user_id), week_start=week_start, week_end=week_end
@@ -1150,7 +1170,9 @@ def format_db_output(data):
     }
 
 
-def process_prediction(prediction_id, json_input, created_at, app, user_id, guest_id):
+def process_prediction(
+    prediction_id, json_input, created_at, start_ts, app, user_id, guest_id
+):
     """Background task for processing prediction."""
     logger.info("Background processing started for prediction %s", prediction_id)
     try:
@@ -1220,7 +1242,7 @@ def process_prediction(prediction_id, json_input, created_at, app, user_id, gues
                         created_at if created_at else datetime.now().isoformat()
                     ),
                     "user_id": user_id,
-                    "guest_id": guest_id
+                    "guest_id": guest_id,
                 },
             )
 
@@ -1253,7 +1275,10 @@ def process_prediction(prediction_id, json_input, created_at, app, user_id, gues
             # Slow part: Gemini AI - ONLY IF NOT GUEST
             ai_advice = None
             if guest_id and not user_id:
-                logger.info("Guest user detected for %s - Skipping Gemini API call", prediction_id)
+                logger.info(
+                    "Guest user detected for %s - Skipping Gemini API call",
+                    prediction_id,
+                )
                 ai_advice = {
                     "factors": {},
                     "description": "Log in to view personalized AI advice.",
@@ -1267,14 +1292,17 @@ def process_prediction(prediction_id, json_input, created_at, app, user_id, gues
 
                 if not ai_advice or not isinstance(ai_advice, dict):
                     logger.warning(
-                        "AI advice generation failed for %s, using fallback", prediction_id
+                        "AI advice generation failed for %s, using fallback",
+                        prediction_id,
                     )
                     ai_advice = {
                         "factors": {},
                         "description": "AI advice could not be generated at this time.",
                     }
                 else:
-                    logger.info("AI advice generated successfully for %s", prediction_id)
+                    logger.info(
+                        "AI advice generated successfully for %s", prediction_id
+                    )
 
             if not current_app.config.get("DB_DISABLED", False):
                 try:
@@ -1286,7 +1314,7 @@ def process_prediction(prediction_id, json_input, created_at, app, user_id, gues
                         wellness_analysis,
                         ai_advice,
                         user_id,
-                        guest_id
+                        guest_id,
                     )
                     logger.info(
                         f"Prediction {prediction_id} saved to database successfully"
@@ -1441,17 +1469,25 @@ def _update_user_streaks(user_id, current_date):
                 curr_daily_streak=1,
                 last_daily_date=current_date,
                 curr_weekly_streak=1,
-                last_weekly_date=current_date
+                last_weekly_date=current_date,
             )
             db.session.add(new_streak)
         else:
-             _update_daily_streak(streak_record, current_date)
-             _update_weekly_streak(streak_record, current_date)
-    
+            _update_daily_streak(streak_record, current_date)
+            _update_weekly_streak(streak_record, current_date)
+
     db.session.flush()
 
 
-def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, ai_advice, user_id=None, guest_id=None):
+def save_to_db(
+    prediction_id,
+    json_input,
+    prediction_score,
+    wellness_analysis,
+    ai_advice,
+    user_id=None,
+    guest_id=None,
+):
     """
     Save prediction results AND update Daily/Weekly streaks.
     Returns: True if streak updated successfully (or no user_id), False if
@@ -1475,14 +1511,14 @@ def save_to_db(prediction_id, json_input, prediction_score, wellness_analysis, a
                 u_id = uuid.UUID(str(user_id))
             except ValueError:
                 logger.warning("Invalid user_id provided: %s", user_id)
-        
+
         g_id = None
         if guest_id:
             try:
                 g_id = uuid.UUID(str(guest_id))
             except ValueError:
                 logger.warning("Invalid guest_id provided: %s", guest_id)
-             
+
         logger.debug("Creating prediction record. User: %s, Guest: %s", u_id, g_id)
 
         new_pred = Predictions(
