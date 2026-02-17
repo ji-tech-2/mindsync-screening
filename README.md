@@ -271,6 +271,15 @@ Setup secrets di repository:
 
 ## 📡 API Endpoints
 
+### Authentication
+
+Most endpoints require a valid JWT token in the `auth_token` httpOnly cookie:
+
+- **User Access**: Authenticate via the main authentication service to get JWT token
+- **Guest Access**: Automatic identification via IP hash (no token needed for guest predictions)
+
+Endpoints that require authentication will return `401 Unauthorized` without a valid token.
+
 ### Health Check
 
 ```
@@ -338,8 +347,10 @@ Returns sparse data showing whether the user took a screening on specific days/w
 - **Weekly**: Returns the last 7 weeks
 - **Current Streaks**: Daily and weekly consecutive streak counts
 
+**Authentication**: Requires valid JWT token in `auth_token` httpOnly cookie
+
 ```
-GET /streak/<user_id>
+GET /streak
 
 Response: 200 OK
 {
@@ -439,8 +450,10 @@ Response: 200 OK
 
 ### Get User History
 
+**Authentication**: Requires valid JWT token in `auth_token` httpOnly cookie
+
 ```
-GET /history/<user_id>
+GET /history
 
 Response: 200 OK
 {
@@ -476,8 +489,10 @@ Response: 200 OK
 
 ### Get Weekly Chart
 
+**Authentication**: Requires valid JWT token in `auth_token` httpOnly cookie
+
 ```
-GET /chart/weekly?user_id=<user_id>
+GET /chart/weekly
 
 Response: 200 OK
 {
@@ -509,6 +524,127 @@ Response: 200 OK
       "stress_level": 1.5
     }
   ],
+  "status": "success"
+}
+```
+
+### Get Daily Suggestion
+
+Returns AI-powered daily suggestions based on today's areas of improvement.
+
+**Authentication**: Requires valid JWT token in `auth_token` httpOnly cookie
+
+```
+GET /daily-suggestion
+
+Response: 200 OK
+{
+  "status": "success",
+  "cached": false,
+  "date": "2026-02-17",
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "stats": {
+    "predictions_today": 3
+  },
+  "areas_of_improvement": [
+    {
+      "factor_name": "Screen Time",
+      "impact_score": 5.2
+    },
+    {
+      "factor_name": "Sleep Quality",
+      "impact_score": 3.1
+    }
+  ],
+  "suggestion": {
+    "message": "Try to reduce screen time in the evening for better sleep quality.",
+    "factors": {...}
+  }
+}
+```
+
+### Get Weekly Critical Factors
+
+Returns the top 3 most frequent areas of improvement from the last week with AI analysis.
+
+**Authentication**: Requires valid JWT token in `auth_token` httpOnly cookie
+
+**Query Parameters**:
+
+- `days` (optional): Number of days to look back (default: 7)
+
+```
+GET /weekly-critical-factors?days=7
+
+Response: 200 OK
+{
+  "status": "success",
+  "cached": false,
+  "period": {
+    "start_date": "2026-02-10T00:00:00",
+    "end_date": "2026-02-17T23:59:59",
+    "days": 7
+  },
+  "stats": {
+    "total_predictions": 15,
+    "user_id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "top_critical_factors": [
+    {
+      "factor_name": "Screen Time",
+      "count": 8,
+      "avg_impact_score": 4.5
+    },
+    {
+      "factor_name": "Sleep Quality",
+      "count": 6,
+      "avg_impact_score": 3.2
+    },
+    {
+      "factor_name": "Stress Level",
+      "count": 5,
+      "avg_impact_score": 2.8
+    }
+  ],
+  "advice": {
+    "description": "Focus on managing screen time and improving sleep patterns for better mental health.",
+    "factors": {...}
+  }
+}
+```
+
+### Generate AI Advice
+
+Generate AI advice manually for a wellness analysis result.
+
+```
+POST /advice
+Content-Type: application/json
+
+{
+  "prediction_score": 45.3,
+  "mental_health_category": "average",
+  "wellness_analysis": {
+    "areas_for_improvement": [
+      {"feature": "Screen Time", "impact_score": 5.2}
+    ],
+    "strengths": [
+      {"feature": "Exercise", "impact_score": -8.5}
+    ]
+  }
+}
+
+Response: 200 OK
+{
+  "ai_advice": {
+    "description": "Great job with exercise! Try reducing screen time...",
+    "factors": {
+      "Screen Time": {
+        "advices": ["Try the 20-20-20 rule..."],
+        "references": ["https://..."]
+      }
+    }
+  },
   "status": "success"
 }
 ```
@@ -561,17 +697,33 @@ Script ini akan:
 ### Testing dengan cURL
 
 ```bash
-# Health check
+# Health check (no auth required)
 curl http://localhost:5000/
 
-# Submit prediction
+# Submit prediction (guest or user)
 curl -X POST http://localhost:5000/predict \
   -H "Content-Type: application/json" \
   -d '{"screen_time_hours": 8, "work_screen_hours": 6, "leisure_screen_hours": 2, "sleep_hours": 7, "sleep_quality_1_5": 3, "stress_level_0_10": 5, "productivity_0_100": 70, "exercise_minutes_per_week": 150, "social_hours_per_week": 10}'
 
-# Check result (ganti <prediction_id> dengan ID dari response sebelumnya)
+# Optional: Submit with user_id (still supported)
+curl -X POST http://localhost:5000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"screen_time_hours": 8, "user_id": "550e8400-e29b-41d4-a716-446655440000", ...}'
+
+# Check result (replace <prediction_id> with ID from response above)
 curl http://localhost:5000/result/<prediction_id>
+
+# Get user streak (requires JWT)
+curl -b "auth_token=<your_jwt_token>" http://localhost:5000/streak
+
+# Get user history (requires JWT)
+curl -b "auth_token=<your_jwt_token>" http://localhost:5000/history
+
+# Get weekly chart (requires JWT)
+curl -b "auth_token=<your_jwt_token>" http://localhost:5000/chart/weekly
 ```
+
+**Note**: Replace `<your_jwt_token>` with a valid JWT token from the authentication service. The token is passed via httpOnly cookie for security.
 
 > **Note:** Automated pytest tests belum diimplementasikan. Untuk kontribusi test suite, silakan buat `tests/` directory dan tambahkan pytest ke requirements.
 
@@ -778,6 +930,10 @@ docker run -p 5000:5000 --env-file .env mindsync-api
 
 ## 📝 Important Notes
 
+- **JWT Authentication**: Some endpoints require a valid JWT token in the `auth_token` httpOnly cookie:
+  - `/streak`, `/history`, `/chart/weekly`, `/daily-suggestion`, `/weekly-critical-factors` require authentication
+  - The token is obtained from the authentication service
+  - Guest users can still use `/predict` without authentication (identified via IP hash)
 - **Storage backend (Database atau Valkey/Redis)**: Minimal **salah satu** harus tersedia agar flow `/predict` → `/result` bisa bekerja penuh (status bisa berubah menjadi `ready`).
   - Jika `DB_DISABLED=True` **dan** Valkey/Redis tidak tersedia, endpoint `/predict` tetap akan mengembalikan `202` dengan `prediction_id`, tetapi `/result` untuk ID tersebut tidak akan pernah selesai (status tidak akan menjadi `ready`).
 - **Database**: Bisa dibuat optional untuk development **jika** Valkey/Redis aktif; app akan menampilkan warning tetapi prediksi tetap bisa diproses dan dilacak melalui cache.
