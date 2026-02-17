@@ -2,6 +2,7 @@
 Unit tests for predict.py processing and database functions
 """
 
+import time
 import uuid
 import pytest
 from datetime import datetime, date
@@ -75,8 +76,15 @@ class TestProcessPrediction:
             },
         }
 
+        test_user_id = str(uuid.uuid4())
         process_prediction(
-            prediction_id, json_input, datetime.now().isoformat(), app_context
+            prediction_id,
+            json_input,
+            datetime.now().isoformat(),
+            time.time(),
+            app_context,
+            test_user_id,
+            None,
         )
 
         # Verify partial result was stored
@@ -106,8 +114,15 @@ class TestProcessPrediction:
             "factors": {},
         }
 
+        test_user_id = str(uuid.uuid4())
         process_prediction(
-            prediction_id, json_input, datetime.now().isoformat(), app_context
+            prediction_id,
+            json_input,
+            datetime.now().isoformat(),
+            time.time(),
+            app_context,
+            test_user_id,
+            None,
         )
 
         # Should still complete with fallback empty analysis
@@ -127,8 +142,15 @@ class TestProcessPrediction:
         # Make model predict raise an exception
         mock_model.model.predict.side_effect = Exception("Model error")
 
+        test_user_id = str(uuid.uuid4())
         process_prediction(
-            prediction_id, json_input, datetime.now().isoformat(), app_context
+            prediction_id,
+            json_input,
+            datetime.now().isoformat(),
+            time.time(),
+            app_context,
+            test_user_id,
+            None,
         )
 
         # Should update cache with error status
@@ -427,7 +449,12 @@ class TestSaveToDb:
         ai_advice = {"description": "Test advice", "factors": {}}
 
         save_to_db(
-            prediction_id, json_input, prediction_score, wellness_analysis, ai_advice
+            prediction_id,
+            json_input,
+            prediction_score,
+            wellness_analysis,
+            ai_advice,
+            user_id=user_id,
         )
 
         # Should create prediction record

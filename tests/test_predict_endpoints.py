@@ -16,6 +16,7 @@ def app():
     app.config["TESTING"] = True
     app.config["DB_DISABLED"] = False
     app.config["GEMINI_API_KEY"] = "test-api-key"
+    app.config["JWT_PUBLIC_KEY"] = "test-public-key"
 
     # Initialize extensions
     from flaskr import db as db_module
@@ -204,15 +205,13 @@ class TestAdviceEndpoint:
 
 
 class TestStreakEndpoint:
-    """Test /streak/<user_id> endpoint."""
+    """Test /streak endpoint with JWT authentication."""
 
-    def test_streak_invalid_user_id(self, client):
-        """Test streak endpoint with invalid user_id."""
-        response = client.get("/streak/invalid-uuid")
-
-        assert response.status_code == 400
-        json_data = response.get_json()
-        assert "Invalid user_id format" in json_data["error"]
+    def test_streak_unauthorized(self, client):
+        """Test streak endpoint without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/streak")
+        assert response.status_code == 401
 
     @patch("flaskr.predict.Predictions")
     def test_streak_no_predictions(self, mock_predictions, client, app):
@@ -222,7 +221,8 @@ class TestStreakEndpoint:
         with app.app_context():
             mock_predictions.query.filter_by.return_value.all.return_value = []
 
-            response = client.get(f"/streak/{user_id}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/streak")
 
             assert response.status_code == 200
             json_data = response.get_json()
@@ -245,22 +245,24 @@ class TestStreakEndpoint:
 
     def test_streak_db_disabled(self, client, app):
         """Test streak endpoint when database is disabled."""
+        user_id = str(uuid.uuid4())
         with app.app_context():
             app.config["DB_DISABLED"] = True
 
-            response = client.get(f"/streak/{str(uuid.uuid4())}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/streak")
 
             assert response.status_code == 503
 
 
 class TestHistoryEndpoint:
-    """Test /history/<user_id> endpoint."""
+    """Test /history endpoint with JWT authentication."""
 
-    def test_history_invalid_user_id(self, client):
-        """Test history with invalid user_id."""
-        response = client.get("/history/invalid-uuid")
-
-        assert response.status_code == 400
+    def test_history_unauthorized(self, client):
+        """Test history without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/history")
+        assert response.status_code == 401
 
     @patch("flaskr.predict.read_from_db")
     def test_history_success(self, mock_read_db, client):
@@ -278,7 +280,8 @@ class TestHistoryEndpoint:
             ],
         }
 
-        response = client.get(f"/history/{user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+            response = client.get("/history")
 
         assert response.status_code == 200
         json_data = response.get_json()
@@ -293,7 +296,8 @@ class TestHistoryEndpoint:
             "status": "not_found",
         }
 
-        response = client.get(f"/history/{user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+            response = client.get("/history")
 
         assert response.status_code == 200
         json_data = response.get_json()
@@ -301,22 +305,24 @@ class TestHistoryEndpoint:
 
 
 class TestWeeklyCriticalFactorsEndpoint:
-    """Test /weekly-critical-factors endpoint."""
+    """Test /weekly-critical-factors endpoint with JWT authentication."""
+
+    def test_weekly_critical_factors_unauthorized(self, client):
+        """Test endpoint without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/weekly-critical-factors")
+        assert response.status_code == 401
 
     def test_weekly_critical_factors_db_disabled(self, client, app):
         """Test endpoint when database is disabled."""
+        user_id = str(uuid.uuid4())
         with app.app_context():
             app.config["DB_DISABLED"] = True
 
-            response = client.get("/weekly-critical-factors")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/weekly-critical-factors")
 
             assert response.status_code == 503
-
-    def test_weekly_critical_factors_invalid_user_id(self, client):
-        """Test with invalid user_id parameter."""
-        response = client.get("/weekly-critical-factors?user_id=invalid")
-
-        assert response.status_code == 400
 
     @patch("flaskr.predict.WeeklyCriticalFactors")
     @patch("flaskr.predict.db")
@@ -325,6 +331,7 @@ class TestWeeklyCriticalFactorsEndpoint:
         self, mock_ai, mock_db, mock_weekly, client, app
     ):
         """Test returning cached weekly critical factors."""
+        user_id = str(uuid.uuid4())
         with app.app_context():
             # Mock cached data
             cached_mock = MagicMock()
@@ -334,7 +341,8 @@ class TestWeeklyCriticalFactorsEndpoint:
             }
             mock_weekly.query.filter_by.return_value.first.return_value = cached_mock
 
-            response = client.get("/weekly-critical-factors")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/weekly-critical-factors")
 
             assert response.status_code == 200
             json_data = response.get_json()
@@ -356,25 +364,51 @@ class TestWeeklyCriticalFactorsEndpoint:
         app,
     ):
         """Test fresh calculation of weekly critical factors."""
+        user_id = str(uuid.uuid4())
         with app.app_context():
             # No cached data
             mock_weekly.query.filter_by.return_value.first.return_value = None
 
-            # Mock query results
+            # Configure pred_date to support comparison operators (needed for filter)
+            pred_date_mock = MagicMock()
+            pred_date_mock.__ge__ = MagicMock(return_value=MagicMock())
+            pred_date_mock.__le__ = MagicMock(return_value=MagicMock())
+            mock_predictions.pred_date = pred_date_mock
+
+            # Configure user_id for comparison
+            user_id_mock = MagicMock()
+            user_id_mock.__eq__ = MagicMock(return_value=MagicMock())
+            mock_predictions.user_id = user_id_mock
+
+            # Configure pred_id for comparison
+            pred_id_mock = MagicMock()
+            pred_id_mock.__eq__ = MagicMock(return_value=MagicMock())
+            mock_predictions.pred_id = pred_id_mock
+            mock_pred_details.pred_id = pred_id_mock
+
+            # Configure impact_score for comparison
+            impact_score_mock = MagicMock()
+            impact_score_mock.__gt__ = MagicMock(return_value=MagicMock())
+            mock_pred_details.impact_score = impact_score_mock
+
+            # Mock query results for the main query
             mock_db.session.query.return_value.join.return_value.filter.return_value.group_by.return_value.order_by.return_value.limit.return_value.all.return_value = [
                 MagicMock(factor_name="Sleep", occurrence_count=5, avg_impact_score=2.5)
             ]
 
-            mock_db.session.query.return_value.filter.return_value.scalar.return_value = (
-                10
-            )
+            # Mock the total_predictions query with chained filters
+            filter_mock = MagicMock()
+            filter_mock.filter.return_value = filter_mock  # Allow chaining
+            filter_mock.scalar.return_value = 10
+            mock_db.session.query.return_value.filter.return_value = filter_mock
 
             mock_ai.get_weekly_advice.return_value = {
                 "description": "Weekly advice",
                 "factors": {},
             }
 
-            response = client.get("/weekly-critical-factors?days=7")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/weekly-critical-factors?days=7")
 
             assert response.status_code == 200
             json_data = response.get_json()
@@ -382,27 +416,19 @@ class TestWeeklyCriticalFactorsEndpoint:
 
 
 class TestDailySuggestionEndpoint:
-    """Test /daily-suggestion endpoint."""
+    """Test /daily-suggestion endpoint with JWT authentication."""
 
-    def test_daily_suggestion_missing_user_id(self, client):
-        """Test without user_id parameter."""
-        response = client.get("/daily-suggestion")
-
-        assert response.status_code == 400
-        json_data = response.get_json()
-        assert "Missing user_id" in json_data["error"]
-
-    def test_daily_suggestion_invalid_user_id(self, client):
-        """Test with invalid user_id."""
-        response = client.get("/daily-suggestion?user_id=invalid")
-
-        assert response.status_code == 400
+    def test_daily_suggestion_unauthorized(self, client):
+        """Test endpoint without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/daily-suggestion")
+        assert response.status_code == 401
 
     @patch("flaskr.predict.DailySuggestions")
     def test_daily_suggestion_cached(self, mock_daily, client, app):
         """Test returning cached daily suggestion."""
+        user_id = str(uuid.uuid4())
         with app.app_context():
-            user_id = str(uuid.uuid4())
             cached_mock = MagicMock()
             cached_mock.to_dict.return_value = {
                 "suggestion": {"message": "Great job!"},
@@ -410,7 +436,8 @@ class TestDailySuggestionEndpoint:
             }
             mock_daily.query.filter_by.return_value.first.return_value = cached_mock
 
-            response = client.get(f"/daily-suggestion?user_id={user_id}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/daily-suggestion")
 
             assert response.status_code == 200
             json_data = response.get_json()
@@ -418,30 +445,25 @@ class TestDailySuggestionEndpoint:
 
 
 class TestWeeklyChartEndpoint:
-    """Test /chart/weekly endpoint."""
+    """Test /weekly-chart-data endpoint with JWT authentication."""
 
-    def test_weekly_chart_missing_user_id(self, client):
-        """Test without user_id parameter."""
-        response = client.get("/chart/weekly")
-
-        assert response.status_code == 400
-
-    def test_weekly_chart_invalid_user_id(self, client):
-        """Test with invalid user_id."""
-        response = client.get("/chart/weekly?user_id=invalid")
-
-        assert response.status_code == 400
+    def test_weekly_chart_unauthorized(self, client):
+        """Test endpoint without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/weekly-chart-data")
+        assert response.status_code == 401
 
     @patch("flaskr.predict.WeeklyChartData")
     def test_weekly_chart_cached(self, mock_chart, client, app):
         """Test returning cached weekly chart data."""
+        user_id = str(uuid.uuid4())
         with app.app_context():
-            user_id = str(uuid.uuid4())
             cached_mock = MagicMock()
             cached_mock.to_dict.return_value = {"data": []}
             mock_chart.query.filter_by.return_value.first.return_value = cached_mock
 
-            response = client.get(f"/chart/weekly?user_id={user_id}")
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/weekly-chart-data")
 
             assert response.status_code == 200
             json_data = response.get_json()

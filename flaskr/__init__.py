@@ -43,6 +43,7 @@ def create_app(test_config=None):
         GEMINI_API_KEY=os.getenv("GEMINI_API_KEY"),
         VALKEY_URL=os.getenv("VALKEY_URL", "redis://localhost:6379"),
         DB_DISABLED=not db_enabled,
+        JWT_PUBLIC_KEY=os.getenv("JWT_PUBLIC_KEY"),
     )
     logger.info("Flask configuration loaded")
 

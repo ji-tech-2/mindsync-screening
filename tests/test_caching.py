@@ -6,6 +6,7 @@ weekly chart, daily suggestions)
 import pytest
 import uuid
 from datetime import datetime, timedelta
+from unittest.mock import patch
 from flaskr import create_app
 from flaskr.db import (
     db,
@@ -26,6 +27,7 @@ def app():
         "SQLALCHEMY_TRACK_MODIFICATIONS": False,
         "DB_DISABLED": False,
         "GEMINI_API_KEY": "test_api_key_12345",
+        "JWT_PUBLIC_KEY": "test-public-key",
     }
 
     app = create_app(test_config)
@@ -283,13 +285,14 @@ class TestDailySuggestionsModel:
 
 
 class TestWeeklyCriticalFactorsEndpoint:
-    """Test /weekly-critical-factors endpoint with caching."""
+    """Test /weekly-critical-factors endpoint with caching and JWT auth."""
 
     def test_cache_miss_creates_new_record(
         self, client, sample_user_id, sample_predictions
     ):
         """Test that cache miss calculates and stores new data."""
-        response = client.get(f"/weekly-critical-factors?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response = client.get("/weekly-critical-factors")
 
         assert response.status_code == 200
         data = response.get_json()
@@ -311,13 +314,15 @@ class TestWeeklyCriticalFactorsEndpoint:
     ):
         """Test that cache hit returns cached data without recalculation."""
         # First request - cache miss
-        response1 = client.get(f"/weekly-critical-factors?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response1 = client.get("/weekly-critical-factors")
         assert response1.status_code == 200
         data1 = response1.get_json()
         assert data1["cached"] is False
 
         # Second request - cache hit
-        response2 = client.get(f"/weekly-critical-factors?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response2 = client.get("/weekly-critical-factors")
         assert response2.status_code == 200
         data2 = response2.get_json()
         assert data2["cached"] is True
@@ -325,17 +330,17 @@ class TestWeeklyCriticalFactorsEndpoint:
         # Data should be identical
         assert data1["top_critical_factors"] == data2["top_critical_factors"]
 
-    def test_invalid_user_id(self, client):
-        """Test with invalid user_id format."""
-        response = client.get("/weekly-critical-factors?user_id=invalid-uuid")
+    def test_unauthorized(self, client):
+        """Test without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/weekly-critical-factors")
 
-        assert response.status_code == 400
-        data = response.get_json()
-        assert "error" in data
+        assert response.status_code == 401
 
     def test_no_data_returns_empty_factors(self, client, sample_user_id):
         """Test endpoint with no predictions returns empty factors."""
-        response = client.get(f"/weekly-critical-factors?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response = client.get("/weekly-critical-factors")
 
         assert response.status_code == 200
         data = response.get_json()
@@ -344,13 +349,14 @@ class TestWeeklyCriticalFactorsEndpoint:
 
 
 class TestWeeklyChartEndpoint:
-    """Test /chart/weekly endpoint with caching."""
+    """Test /weekly-chart-data endpoint with caching and JWT auth."""
 
     def test_cache_miss_creates_new_record(
         self, client, sample_user_id, sample_predictions
     ):
         """Test that cache miss calculates and stores new data."""
-        response = client.get(f"/chart/weekly?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response = client.get("/weekly-chart-data")
 
         assert response.status_code == 200
         data = response.get_json()
@@ -372,13 +378,15 @@ class TestWeeklyChartEndpoint:
     ):
         """Test that cache hit returns cached data without recalculation."""
         # First request - cache miss
-        response1 = client.get(f"/chart/weekly?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response1 = client.get("/weekly-chart-data")
         assert response1.status_code == 200
         data1 = response1.get_json()
         assert data1["cached"] is False
 
         # Second request - cache hit
-        response2 = client.get(f"/chart/weekly?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response2 = client.get("/weekly-chart-data")
         assert response2.status_code == 200
         data2 = response2.get_json()
         assert data2["cached"] is True
@@ -386,17 +394,17 @@ class TestWeeklyChartEndpoint:
         # Data should be identical
         assert data1["data"] == data2["data"]
 
-    def test_missing_user_id(self, client):
-        """Test endpoint without user_id."""
-        response = client.get("/chart/weekly")
+    def test_unauthorized(self, client):
+        """Test endpoint without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/weekly-chart-data")
 
-        assert response.status_code == 400
-        data = response.get_json()
-        assert "error" in data
+        assert response.status_code == 401
 
     def test_chart_data_structure(self, client, sample_user_id, sample_predictions):
         """Test that chart data has correct structure."""
-        response = client.get(f"/chart/weekly?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response = client.get("/weekly-chart-data")
 
         assert response.status_code == 200
         data = response.get_json()
@@ -414,13 +422,14 @@ class TestWeeklyChartEndpoint:
 
 
 class TestDailySuggestionEndpoint:
-    """Test /daily-suggestion endpoint with caching."""
+    """Test /daily-suggestion endpoint with caching and JWT auth."""
 
     def test_cache_miss_creates_new_record(
         self, client, sample_user_id, sample_predictions
     ):
         """Test that cache miss calculates and stores new data."""
-        response = client.get(f"/daily-suggestion?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response = client.get("/daily-suggestion")
 
         assert response.status_code == 200
         data = response.get_json()
@@ -442,13 +451,15 @@ class TestDailySuggestionEndpoint:
     ):
         """Test that cache hit returns cached data without recalculation."""
         # First request - cache miss
-        response1 = client.get(f"/daily-suggestion?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response1 = client.get("/daily-suggestion")
         assert response1.status_code == 200
         data1 = response1.get_json()
         assert data1["cached"] is False
 
         # Second request - cache hit
-        response2 = client.get(f"/daily-suggestion?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response2 = client.get("/daily-suggestion")
         assert response2.status_code == 200
         data2 = response2.get_json()
         assert data2["cached"] is True
@@ -456,26 +467,17 @@ class TestDailySuggestionEndpoint:
         # Data should be identical
         assert data1["suggestion"] == data2["suggestion"]
 
-    def test_missing_user_id(self, client):
-        """Test endpoint without user_id."""
-        response = client.get("/daily-suggestion")
+    def test_unauthorized(self, client):
+        """Test endpoint without JWT returns 401."""
+        with patch("flaskr.predict.get_jwt_identity", return_value=None):
+            response = client.get("/daily-suggestion")
 
-        assert response.status_code == 400
-        data = response.get_json()
-        assert "error" in data
-        assert "Missing user_id" in data["error"]
-
-    def test_invalid_user_id(self, client):
-        """Test with invalid user_id format."""
-        response = client.get("/daily-suggestion?user_id=not-a-uuid")
-
-        assert response.status_code == 400
-        data = response.get_json()
-        assert "error" in data
+        assert response.status_code == 401
 
     def test_no_predictions_today(self, client, sample_user_id):
         """Test endpoint when user has no predictions today."""
-        response = client.get(f"/daily-suggestion?user_id={sample_user_id}")
+        with patch("flaskr.predict.get_jwt_identity", return_value=sample_user_id):
+            response = client.get("/daily-suggestion")
 
         assert response.status_code == 200
         data = response.get_json()
