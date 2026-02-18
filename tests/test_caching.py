@@ -26,7 +26,7 @@ def app():
         "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
         "SQLALCHEMY_TRACK_MODIFICATIONS": False,
         "DB_DISABLED": False,
-        "GEMINI_API_KEY": "test_api_key_12345",
+        "GEMINI_API_KEYS": ["test_api_key_12345"],  # Changed to plural with list
         "JWT_PUBLIC_KEY": "test-public-key",
     }
 
@@ -440,7 +440,7 @@ class TestDailySuggestionEndpoint:
 
         # Verify record was created in database
         with client.application.app_context():
-            today = datetime.now().date()
+            today = datetime.utcnow().date()  # Use UTC to match endpoint
             cached = DailySuggestions.query.filter_by(
                 user_id=uuid.UUID(sample_user_id), date=today
             ).first()
