@@ -416,8 +416,10 @@ def advice():
         logger.info(
             f"Generating advice for score: {prediction_score}, category: {category}"
         )
-        api_key = current_app.config.get("GEMINI_API_KEY")
-        ai_advice = ai.get_ai_advice(prediction_score, category, analysis, api_key)
+        api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
+        ai_advice = ai.get_ai_advice(
+            prediction_score, category, analysis, api_keys_pool
+        )
 
         logger.info("Advice generated successfully")
         return jsonify({"ai_advice": ai_advice, "status": "success"})
@@ -765,12 +767,12 @@ def get_weekly_critical_factors():
         total_count = total_predictions.scalar() or 0
 
         # Generate AI advice for these critical factors
-        api_key = current_app.config.get("GEMINI_API_KEY")
+        api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
         ai_advice = None
 
-        if top_factors and api_key:
-            ai_advice = ai.get_weekly_advice(top_factors, api_key)
-        elif not api_key:
+        if top_factors and api_keys_pool:
+            ai_advice = ai.get_weekly_advice(top_factors, api_keys_pool)
+        elif not api_keys_pool:
             ai_advice = {
                 "description": "AI advice unavailable (API key not configured)",
                 "factors": {},
@@ -785,7 +787,7 @@ def get_weekly_critical_factors():
             }
 
         # Only cache if there's actual prediction data
-        if top_factors and api_key:
+        if top_factors and api_keys_pool:
             new_cache = WeeklyCriticalFactors(
                 user_id=uuid.UUID(user_id) if user_id else None,
                 week_start=week_start,
@@ -924,12 +926,12 @@ def get_daily_suggestion():
         )
 
         # Generate AI advice for today's factors
-        api_key = current_app.config.get("GEMINI_API_KEY")
+        api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
         ai_advice = None
 
-        if top_factors and api_key:
-            ai_advice = ai.get_daily_advice(top_factors, api_key)
-        elif not api_key:
+        if top_factors and api_keys_pool:
+            ai_advice = ai.get_daily_advice(top_factors, api_keys_pool)
+        elif not api_keys_pool:
             ai_advice = {
                 "message": (
                     "AI advice unavailable. Take a moment to reflect on "
@@ -951,7 +953,9 @@ def get_daily_suggestion():
             }
 
         # Only cache if there's actual prediction data
-        if (top_factors and api_key) or (prediction_count > 0 and not top_factors):
+        if (top_factors and api_keys_pool) or (
+            prediction_count > 0 and not top_factors
+        ):
             new_cache = DailySuggestions(
                 user_id=uuid.UUID(user_id),
                 date=today,
@@ -1287,9 +1291,12 @@ def process_prediction(
                 }
             else:
                 logger.info("Requesting AI advice for %s", prediction_id)
-                api_key = current_app.config.get("GEMINI_API_KEY")
+                api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
                 ai_advice = ai.get_ai_advice(
-                    prediction_score, mental_health_category, wellness_analysis, api_key
+                    prediction_score,
+                    mental_health_category,
+                    wellness_analysis,
+                    api_keys_pool,
                 )
 
                 if not ai_advice or not isinstance(ai_advice, dict):

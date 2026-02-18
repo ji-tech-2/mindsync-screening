@@ -4,10 +4,14 @@ AI Advice generation using Google Gemini
 
 import json
 import logging
+import threading
 from google import genai
 from google.genai import types
 
 logger = logging.getLogger(__name__)
+MODEL_NAME = "gemini-2.0-flash"
+_rotation_index = 0
+_rotation_lock = threading.Lock()
 
 # Trusted resources for AI advice
 TRUSTED_SOURCES = """  # noqa: E501
@@ -73,7 +77,64 @@ Language: English (Standard US).
 """
 
 
-def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key):
+def gemini_rotation(prompt, api_keys_string):
+    """Helper function for API key queue (round robin with fallback)."""
+    global _rotation_index
+
+    if not api_keys_string:
+        logger.error("No API Keys provided in config.")
+        return None
+
+    if isinstance(api_keys_string, (list, tuple)):
+        keys_pool = [str(k).strip() for k in api_keys_string if str(k).strip()]
+    else:
+        keys_pool = [k.strip() for k in str(api_keys_string).split(",") if k.strip()]
+
+    num_keys = len(keys_pool)
+
+    if num_keys == 0:
+        logger.error("API Key list is empty after parsing.")
+        return None
+
+    for _ in range(num_keys):
+        with _rotation_lock:
+            current_idx = _rotation_index % num_keys
+            current_key = keys_pool[current_idx]
+            _rotation_index += 1
+
+        key_id = current_key[-4:]
+
+        try:
+            logger.info(
+                "[Queue] Using Key ID: ...%s (Queue index %s)",
+                key_id,
+                current_idx + 1,
+            )
+
+            client = genai.Client(api_key=current_key)
+
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7, response_mime_type="application/json"
+                ),
+            )
+
+            result = json.loads(response.text.strip())
+            logger.info("Gemini request success with Key ...%s", key_id)
+            return result
+
+        except Exception as e:
+            logger.warning("Gemini request failed with Key ...%s: %s", key_id, e)
+            logger.info("Trying next key in queue...")
+            continue
+
+    logger.error("All API keys in queue failed.")
+    return None
+
+
+def get_ai_advice(prediction_score, category, wellness_analysis_result, api_keys_pool):
     """Generate personalized AI advice using Gemini."""
     logger.info(
         f"Generating AI advice for category: {category}, score: {prediction_score:.2f}"
@@ -106,27 +167,13 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
     )
 
     try:
-        client = genai.Client(api_key=api_key)
+        result = gemini_rotation(prompt, api_keys_pool)
+        if result is not None:
+            return result
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.7, response_mime_type="application/json"
-            ),
-        )
-        return json.loads(response.text.strip())
-
-    except json.JSONDecodeError as e:
-        print(f"Gemini API JSON Parse Error: {e}")
-        response_preview = (
-            response.text[:500] if response and response.text else "No response"
-        )
-        print(f"Raw response: {response_preview}")
         return {
             "description": (
-                "We encountered an issue processing the AI response. "
-                "Please try again."
+                "We encountered a temporary issue generating your personalized plan."
             ),
             "factors": {},
         }
@@ -134,7 +181,7 @@ def get_ai_advice(prediction_score, category, wellness_analysis_result, api_key)
         print(f"Gemini API Error: {e}")
         return {
             "description": (
-                "We encountered a temporary issue generating your " "personalized plan."
+                "We encountered a temporary issue generating your personalized plan."
             ),
             "factors": {},
         }
@@ -215,27 +262,13 @@ def get_weekly_advice(top_factors, api_key):
     """
 
     try:
-        client = genai.Client(api_key=api_key)
+        result = gemini_rotation(prompt, api_key)
+        if result is not None:
+            return result
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.7, response_mime_type="application/json"
-            ),
-        )
-        return json.loads(response.text.strip())
-
-    except json.JSONDecodeError as e:
-        print(f"Gemini API JSON Parse Error (weekly advice): {e}")
-        response_preview = (
-            response.text[:500] if response and response.text else "No response"
-        )
-        print(f"Raw response: {response_preview}")
         return {
             "description": (
-                "We encountered an issue processing the AI response. "
-                "Please try again."
+                "We encountered a temporary issue generating your " "weekly summary."
             ),
             "factors": {},
         }
@@ -300,17 +333,16 @@ def get_daily_advice(top_factors, api_key):
     """
 
     try:
-        client = genai.Client(api_key=api_key)
+        result = gemini_rotation(prompt, api_key)
+        if result is not None:
+            return result
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.7, response_mime_type="application/json"
-            ),
-        )
-        return json.loads(response.text.strip())
-
+        return {
+            "error": (
+                "Take a moment to focus on your wellness today. "
+                "Small steps lead to big improvements!"
+            )
+        }
     except Exception as e:
         print(f"Gemini API Error (daily advice): {e}")
         return {
