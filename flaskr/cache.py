@@ -57,7 +57,7 @@ def init_app(app):
             worker_running = True
             # Use local variable to avoid race conditions
             local_thread = threading.Thread(
-                target=_handover_worker, args=(app._get_current_object(),), daemon=True
+                target=_handover_worker, args=(app,), daemon=True
             )
             local_thread.start()
             # Assign to global after thread is started
