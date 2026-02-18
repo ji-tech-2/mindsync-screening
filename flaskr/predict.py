@@ -528,7 +528,7 @@ def get_streak(user_id):
         # Streak persists if last screening was yesterday, resets if gap > 1 day
         current_daily_streak = 0
         last_daily_date = None
-        
+
         # Find the most recent consecutive streak ending today or yesterday
         if today in prediction_dates:
             # Today has screening - count backward from today
@@ -553,9 +553,7 @@ def get_streak(user_id):
 
         def _has_screening_in_week(week_monday):
             week_sunday = week_monday + timedelta(days=6)
-            return any(
-                week_monday <= date <= week_sunday for date in prediction_dates
-            )
+            return any(week_monday <= date <= week_sunday for date in prediction_dates)
 
         if _has_screening_in_week(monday):
             # This week has screening - count backward from this week
