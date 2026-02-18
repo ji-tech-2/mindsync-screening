@@ -76,6 +76,7 @@ Tone: Professional, warm, non-judgmental.
 Language: English (Standard US).
 """
 
+
 def gemini_rotation(prompt, api_keys_string):
     """Helper function for API key queue (round robin with fallback)."""
     global _rotation_index
@@ -116,8 +117,7 @@ def gemini_rotation(prompt, api_keys_string):
                 model=MODEL_NAME,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    temperature=0.7,
-                    response_mime_type="application/json"
+                    temperature=0.7, response_mime_type="application/json"
                 ),
             )
 
@@ -132,6 +132,7 @@ def gemini_rotation(prompt, api_keys_string):
 
     logger.error("All API keys in queue failed.")
     return None
+
 
 def get_ai_advice(prediction_score, category, wellness_analysis_result, api_keys_pool):
     """Generate personalized AI advice using Gemini."""

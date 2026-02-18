@@ -415,7 +415,9 @@ def advice():
             f"Generating advice for score: {prediction_score}, category: {category}"
         )
         api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
-        ai_advice = ai.get_ai_advice(prediction_score, category, analysis, api_keys_pool)
+        ai_advice = ai.get_ai_advice(
+            prediction_score, category, analysis, api_keys_pool
+        )
 
         logger.info("Advice generated successfully")
         return jsonify({"ai_advice": ai_advice, "status": "success"})
@@ -949,7 +951,9 @@ def get_daily_suggestion():
             }
 
         # Only cache if there's actual prediction data
-        if (top_factors and api_keys_pool) or (prediction_count > 0 and not top_factors):
+        if (top_factors and api_keys_pool) or (
+            prediction_count > 0 and not top_factors
+        ):
             new_cache = DailySuggestions(
                 user_id=uuid.UUID(user_id),
                 date=today,
@@ -1287,7 +1291,10 @@ def process_prediction(
                 logger.info("Requesting AI advice for %s", prediction_id)
                 api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
                 ai_advice = ai.get_ai_advice(
-                    prediction_score, mental_health_category, wellness_analysis, api_keys_pool
+                    prediction_score,
+                    mental_health_category,
+                    wellness_analysis,
+                    api_keys_pool,
                 )
 
                 if not ai_advice or not isinstance(ai_advice, dict):
