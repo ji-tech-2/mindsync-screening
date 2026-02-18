@@ -468,6 +468,8 @@ def get_streak(user_id):
         logger.debug("Querying predictions for user %s", user_id)
         user_uuid = uuid.UUID(user_id)
 
+        streak_record = UserStreaks.query.filter_by(user_id=user_uuid).first()
+
         # Get all predictions for this user
         predictions = Predictions.query.filter_by(user_id=user_uuid).all()
         prediction_dates = {pred.pred_date.date() for pred in predictions}
@@ -522,32 +524,53 @@ def get_streak(user_id):
                 }
             )
 
-        # Calculate current daily streak
-        current_daily_streak = 0
-        last_daily_date = None
-        check_date = today
-        while check_date in prediction_dates:
-            current_daily_streak += 1
-            last_daily_date = check_date
-            check_date -= timedelta(days=1)
-
-        # Calculate current weekly streak
-        current_weekly_streak = 0
-        last_weekly_date = None
-        check_week_monday = monday
-        while True:
-            check_week_sunday = check_week_monday + timedelta(days=6)
-            # Check if any prediction exists in this week
-            has_week_screening = any(
-                check_week_monday <= date <= check_week_sunday
-                for date in prediction_dates
+        # Current streak: prefer persisted streak values (client-local date aware)
+        # and fallback to predictions-based calculation if no streak record exists.
+        if streak_record:
+            current_daily_streak = max(int(streak_record.curr_daily_streak or 0), 0)
+            last_daily_date = streak_record.last_daily_date
+            current_weekly_streak = max(int(streak_record.curr_weekly_streak or 0), 0)
+            last_weekly_date = streak_record.last_weekly_date
+        else:
+            # Calculate current daily streak with 1-day grace period:
+            # if today has no screening, keep yesterday's streak (reset on next day).
+            current_daily_streak = 0
+            last_daily_date = None
+            streak_start_date = (
+                today if today in prediction_dates else today - timedelta(days=1)
             )
-            if has_week_screening:
-                current_weekly_streak += 1
-                last_weekly_date = check_week_monday
-                check_week_monday -= timedelta(weeks=1)
+
+            if streak_start_date in prediction_dates:
+                check_date = streak_start_date
+                last_daily_date = streak_start_date
+                while check_date in prediction_dates:
+                    current_daily_streak += 1
+                    check_date -= timedelta(days=1)
+
+            # Calculate current weekly streak with 1-week grace period:
+            # if current week has no screening, keep last week's streak.
+            current_weekly_streak = 0
+            last_weekly_date = None
+
+            def _has_screening_in_week(week_monday):
+                week_sunday = week_monday + timedelta(days=6)
+                return any(
+                    week_monday <= date <= week_sunday for date in prediction_dates
+                )
+
+            if _has_screening_in_week(monday):
+                streak_start_week = monday
+            elif _has_screening_in_week(monday - timedelta(weeks=1)):
+                streak_start_week = monday - timedelta(weeks=1)
             else:
-                break
+                streak_start_week = None
+
+            if streak_start_week is not None:
+                check_week_monday = streak_start_week
+                last_weekly_date = streak_start_week
+                while _has_screening_in_week(check_week_monday):
+                    current_weekly_streak += 1
+                    check_week_monday -= timedelta(weeks=1)
 
         logger.info("Streak data processed for user %s", user_id)
         return (
