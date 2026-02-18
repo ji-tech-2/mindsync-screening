@@ -50,7 +50,15 @@ def create_app(test_config=None):
     # Only set SQLAlchemy URI when DB is enabled
     if db_enabled:
         app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-        logger.info("SQLAlchemy URI configured")
+        # Connection pool configuration to prevent connection issues
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "pool_size": 10,  # Maximum number of connections to keep open
+            "pool_recycle": 3600,  # Recycle connections after 1 hour (prevents stale connections)
+            "pool_pre_ping": True,  # Test connections before using them
+            "pool_timeout": 30,  # Timeout for getting connection from pool
+            "max_overflow": 5,  # Allow 5 extra connections beyond pool_size when needed
+        }
+        logger.info("SQLAlchemy URI and connection pool configured")
 
     if test_config is None:
         # Load the instance config, if it exists, when not testing

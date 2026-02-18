@@ -672,7 +672,7 @@ def get_history():
             return jsonify(db_result), 400
 
     except Exception as e:
-        print(f"Error fetching history: {e}")
+        logger.error("Error fetching history: %s", e, exc_info=True)
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
@@ -841,8 +841,16 @@ def get_weekly_critical_factors():
         )
 
     except Exception as e:
-        print(f"Error in weekly critical factors: {e}")
-        db.session.rollback()
+        logger.error("Error in weekly critical factors: %s", e, exc_info=True)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
@@ -1004,8 +1012,16 @@ def get_daily_suggestion():
         )
 
     except Exception as e:
-        print(f"Error in daily suggestion: {e}")
-        db.session.rollback()
+        logger.error("Error in daily suggestion: %s", e, exc_info=True)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
@@ -1153,8 +1169,16 @@ def get_weekly_chart_data():
         return jsonify({"status": "success", "cached": False, "data": chart_data}), 200
 
     except Exception as e:
-        print(f"Error in weekly chart: {e}")
-        db.session.rollback()
+        logger.error("Error in weekly chart: %s", e, exc_info=True)
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        finally:
+            try:
+                db.session.remove()
+            except Exception:
+                pass
         return jsonify({"error": str(e), "status": "error"}), 500
 
 
@@ -1477,7 +1501,7 @@ def _parse_current_date(client_date_str):
         try:
             return datetime.strptime(client_date_str, "%Y-%m-%d").date()
         except ValueError:
-            print("⚠️ Invalid local_date format. Fallback to UTC.")
+            logger.warning("⚠️ Invalid local_date format. Fallback to UTC.")
             return datetime.utcnow().date()
     else:
         return datetime.utcnow().date()
@@ -1594,14 +1618,14 @@ def save_to_db(
                 current_date = _parse_current_date(json_input.get("local_date"))
                 _update_user_streaks(u_id, current_date)
             except Exception as exc:
-                print(f"⚠️ Streak update failed: {exc}")
-                print(
-                    "   Details: Prediction still saved to database, "
+                logger.warning("⚠️ Streak update failed: %s", exc)
+                logger.warning(
+                    "Details: Prediction still saved to database, "
                     "only streak tracking failed."
                 )
 
         db.session.commit()
-        print(f"💾 Database save completed for {prediction_id}")
+        logger.info("💾 Database save completed for %s", prediction_id)
 
 
 def read_from_db(prediction_id=None, user_id=None):
@@ -1711,5 +1735,5 @@ def read_from_db(prediction_id=None, user_id=None):
             }
 
     except Exception as e:
-        print(f"Error reading from database: {e}")
+        logger.error("Error reading from database: %s", e, exc_info=True)
         return {"error": str(e), "status": "error"}
