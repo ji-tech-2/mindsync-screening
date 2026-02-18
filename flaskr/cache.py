@@ -41,24 +41,22 @@ def init_app(app):
         )
         valkey_client.ping()
         logger.info("Successfully connected to Valkey/Redis cache")
-        
+
         # Create consumer group for handover stream
         _create_consumer_group()
-        
+
         # Start handover worker thread
         if not app.config.get("DB_DISABLED", False):
             logger.info("Starting handover worker thread")
             worker_running = True
             worker_thread = threading.Thread(
-                target=_handover_worker,
-                args=(app._get_current_object(),),
-                daemon=True
+                target=_handover_worker, args=(app._get_current_object(),), daemon=True
             )
             worker_thread.start()
             logger.info("Handover worker thread started")
         else:
             logger.info("Database disabled, skipping handover worker")
-            
+
     except Exception as e:
         logger.error("Failed to connect to Valkey: %s", e)
         logger.warning("Application will run without caching")
@@ -131,20 +129,17 @@ def _create_consumer_group():
     if valkey_client is None:
         logger.warning("Valkey not available, cannot create consumer group")
         return
-    
+
     try:
         # Try to create the consumer group
         # XGROUP CREATE stream group id MKSTREAM
         valkey_client.xgroup_create(
-            name=HANDOVER_STREAM,
-            groupname=CONSUMER_GROUP,
-            id="$",
-            mkstream=True
+            name=HANDOVER_STREAM, groupname=CONSUMER_GROUP, id="$", mkstream=True
         )
         logger.info(
             "Created consumer group '%s' for stream '%s'",
             CONSUMER_GROUP,
-            HANDOVER_STREAM
+            HANDOVER_STREAM,
         )
     except valkey.exceptions.ResponseError as e:
         # Group might already exist
@@ -152,7 +147,7 @@ def _create_consumer_group():
             logger.info(
                 "Consumer group '%s' already exists for stream '%s'",
                 CONSUMER_GROUP,
-                HANDOVER_STREAM
+                HANDOVER_STREAM,
             )
         else:
             logger.error("Error creating consumer group: %s", e)
@@ -163,14 +158,14 @@ def _create_consumer_group():
 def _handover_worker(app):
     """Background worker to process handover messages from the stream."""
     global worker_running
-    
+
     logger.info("Handover worker started, listening on stream '%s'", HANDOVER_STREAM)
-    
+
     while worker_running:
         if valkey_client is None:
             logger.warning("Valkey client not available, stopping handover worker")
             break
-            
+
         try:
             # Read from the stream using consumer group
             # XREADGROUP GROUP group consumer COUNT 1 BLOCK 2000 STREAMS stream >
@@ -179,56 +174,64 @@ def _handover_worker(app):
                 consumername=CONSUMER_NAME,
                 streams={HANDOVER_STREAM: ">"},
                 count=1,
-                block=2000  # Block for 2 seconds
+                block=2000,  # Block for 2 seconds
             )
-            
+
             if not messages:
                 continue
-            
+
             # Process each message
             for stream_name, message_list in messages:
                 for message_id, message_data in message_list:
                     logger.info(
                         "Received handover message %s: %s",
-                        message_id.decode() if isinstance(message_id, bytes) else message_id,
-                        message_data
+                        (
+                            message_id.decode()
+                            if isinstance(message_id, bytes)
+                            else message_id
+                        ),
+                        message_data,
                     )
-                    
+
                     # Process the handover
                     success = _process_handover(app, message_data)
-                    
+
                     if success:
                         # Acknowledge the message
-                        valkey_client.xack(
-                            HANDOVER_STREAM,
-                            CONSUMER_GROUP,
-                            message_id
-                        )
+                        valkey_client.xack(HANDOVER_STREAM, CONSUMER_GROUP, message_id)
                         logger.info(
                             "Handover message %s acknowledged",
-                            message_id.decode() if isinstance(message_id, bytes) else message_id
+                            (
+                                message_id.decode()
+                                if isinstance(message_id, bytes)
+                                else message_id
+                            ),
                         )
                     else:
                         logger.error(
                             "Failed to process handover message %s, not acknowledging",
-                            message_id.decode() if isinstance(message_id, bytes) else message_id
+                            (
+                                message_id.decode()
+                                if isinstance(message_id, bytes)
+                                else message_id
+                            ),
                         )
-                        
+
         except Exception as e:
             logger.error("Error in handover worker: %s", e, exc_info=True)
             # Sleep a bit before retrying to avoid tight loop on persistent errors
             time.sleep(5)
-    
+
     logger.info("Handover worker stopped")
 
 
 def _process_handover(app, message_data):
     """Process a handover message and update the database.
-    
+
     Args:
         app: Flask application instance
         message_data: Dict containing 'guest_id' and 'user_id'
-        
+
     Returns:
         bool: True if successful, False otherwise
     """
@@ -241,17 +244,17 @@ def _process_handover(app, message_data):
                 v = value.decode() if isinstance(value, bytes) else value
                 decoded_data[k] = v
             message_data = decoded_data
-        
+
         guest_id_str = message_data.get("guest_id")
         user_id_str = message_data.get("user_id")
-        
+
         if not guest_id_str or not user_id_str:
             logger.error(
                 "Invalid handover message: missing guest_id or user_id - %s",
-                message_data
+                message_data,
             )
             return False
-        
+
         # Validate UUIDs
         try:
             guest_uuid = uuid.UUID(guest_id_str)
@@ -259,43 +262,41 @@ def _process_handover(app, message_data):
         except ValueError as e:
             logger.error("Invalid UUID format in handover message: %s", e)
             return False
-        
+
         logger.info(
-            "Processing handover: guest_id=%s -> user_id=%s",
-            guest_id_str,
-            user_id_str
+            "Processing handover: guest_id=%s -> user_id=%s", guest_id_str, user_id_str
         )
-        
+
         # Import db here to avoid circular imports
         from .db import db, Predictions
-        
+
         with app.app_context():
             # Update all predictions for this guest_id
-            predictions_updated = db.session.query(Predictions).filter(
-                Predictions.guest_id == guest_uuid
-            ).update(
-                {
-                    Predictions.user_id: user_uuid,
-                    Predictions.guest_id: None
-                },
-                synchronize_session=False
+            predictions_updated = (
+                db.session.query(Predictions)
+                .filter(Predictions.guest_id == guest_uuid)
+                .update(
+                    {Predictions.user_id: user_uuid, Predictions.guest_id: None},
+                    synchronize_session=False,
+                )
             )
-            
+
             db.session.commit()
-            
+
             logger.info(
                 "Handover completed: %d predictions transferred from guest_id=%s to user_id=%s",
                 predictions_updated,
                 guest_id_str,
-                user_id_str
+                user_id_str,
             )
-            
+
             return True
-            
+
     except Exception as e:
         logger.error("Error processing handover: %s", e, exc_info=True)
         try:
             from .db import db
+
             with app.app_context():
                 db.session.rollback()
         except Exception:

@@ -204,7 +204,7 @@ def predict():
         if not user_id:
             # Try to get guest_id from cookie
             guest_id = request.cookies.get("guest_id")
-            
+
             if guest_id:
                 # Validate that it's a proper UUID
                 if not is_valid_uuid(guest_id):
