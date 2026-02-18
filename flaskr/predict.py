@@ -401,6 +401,16 @@ def advice():
             else:
                 prediction_score = pred_list
 
+        if prediction_score is not None:
+            try:
+                # 1. Convert to float first (handles "95", 95, or 95.5)
+                score_val = float(prediction_score)
+                # 2. Apply clamp
+                prediction_score = max(0, min(100, score_val))
+            except (ValueError, TypeError):
+                # Handle cases where data is garbage (e.g., "high")
+                prediction_score = 0  # Default fallback
+
         category = json_input.get("mental_health_category")
         analysis = json_input.get("wellness_analysis")
 
