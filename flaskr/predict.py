@@ -536,7 +536,9 @@ def get_streak(user_id):
             # if today has no screening, keep yesterday's streak (reset on next day).
             current_daily_streak = 0
             last_daily_date = None
-            streak_start_date = today if today in prediction_dates else today - timedelta(days=1)
+            streak_start_date = (
+                today if today in prediction_dates else today - timedelta(days=1)
+            )
 
             if streak_start_date in prediction_dates:
                 check_date = streak_start_date
@@ -552,7 +554,9 @@ def get_streak(user_id):
 
             def _has_screening_in_week(week_monday):
                 week_sunday = week_monday + timedelta(days=6)
-                return any(week_monday <= date <= week_sunday for date in prediction_dates)
+                return any(
+                    week_monday <= date <= week_sunday for date in prediction_dates
+                )
 
             if _has_screening_in_week(monday):
                 streak_start_week = monday
