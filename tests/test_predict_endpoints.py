@@ -15,7 +15,7 @@ def app():
     app = Flask(__name__)
     app.config["TESTING"] = True
     app.config["DB_DISABLED"] = False
-    app.config["GEMINI_API_KEY"] = "test-api-key"
+    app.config["GEMINI_API_KEYS"] = "test-api-key"
     app.config["JWT_PUBLIC_KEY"] = "test-public-key"
 
     # Initialize extensions

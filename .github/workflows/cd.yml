@@ -44,7 +44,7 @@ jobs:
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
               -p ${{ env.HOST_PORT }}:${{ env.APP_PORT }} \
-              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e GEMINI_API_KEYS="${{ secrets.GEMINI_API_KEYS }}" \
               -e WANDB_API_KEY="${{ secrets.WANDB_API_KEY }}" \
               -e WANDB_ENTITY="${{ secrets.WANDB_ENTITY }}" \
               -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
