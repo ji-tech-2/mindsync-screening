@@ -3,6 +3,7 @@ MindSync - Mental Health Prediction API
 Application Factory Pattern
 """
 
+import atexit
 import os
 import logging
 from flask import Flask
@@ -91,10 +92,8 @@ def create_app(test_config=None):
     logger.info("Initializing Valkey/Redis cache")
     cache.init_app(app)
 
-    # Register teardown handler for graceful worker shutdown
-    @app.teardown_appcontext
-    def shutdown_worker(exception=None):
-        cache.stop_worker()
+    # Register cleanup handler for graceful worker shutdown on process exit
+    atexit.register(cache.stop_worker)
 
     # Initialize ML model
     from . import model
