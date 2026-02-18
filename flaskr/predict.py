@@ -1101,7 +1101,8 @@ def get_weekly_chart_data():
                 func.avg(Predictions.sleep_hours).label("sleep_duration"),
                 func.avg(Predictions.sleep_quality).label("sleep_quality"),
                 func.avg(Predictions.stress_level).label("stress_level"),
-                func.avg(Predictions.screen_time).label("screen_time"),
+                func.avg(Predictions.work_screen).label("work_screen"),
+                func.avg(Predictions.leisure_screen).label("leisure_screen"),
                 func.avg(Predictions.productivity).label("productivity"),
                 func.avg(Predictions.social).label("social_activity"),
                 func.avg(Predictions.exercise).label("exercise_duration"),
@@ -1134,7 +1135,8 @@ def get_weekly_chart_data():
                 "sleep_duration": 0,
                 "sleep_quality": 0,
                 "stress_level": 0,
-                "screen_time": 0,
+                "work_screen": 0,
+                "leisure_screen": 0,
                 "productivity": 0,
                 "social_activity": 0,
                 "exercise_duration": 0,
@@ -1152,7 +1154,8 @@ def get_weekly_chart_data():
                         "sleep_duration": round(float(row.sleep_duration or 0), 1),
                         "sleep_quality": round(float(row.sleep_quality or 0), 1),
                         "stress_level": round(float(row.stress_level or 0), 1),
-                        "screen_time": round(float(row.screen_time or 0), 1),
+                        "work_screen": round(float(row.work_screen or 0), 1),
+                        "leisure_screen": round(float(row.leisure_screen or 0), 1),
                         "productivity": round(float(row.productivity or 0), 1),
                         "social_activity": round(float(row.social_activity or 0), 1),
                         "exercise_duration": round(
@@ -1587,13 +1590,21 @@ def save_to_db(
 
         logger.debug("Creating prediction record. User: %s, Guest: %s", u_id, g_id)
 
+        work_screen_val = float(json_input.get("work_screen_hours", 0))
+        leisure_screen_val = float(json_input.get("leisure_screen_hours", 0))
+        screen_time_val = float(
+            json_input.get("screen_time_hours")
+            if json_input.get("screen_time_hours") is not None
+            else work_screen_val + leisure_screen_val
+        )
+
         new_pred = Predictions(
             pred_id=uuid.UUID(prediction_id),
             user_id=u_id,
             guest_id=g_id,
-            screen_time=float(json_input.get("screen_time_hours", 0)),
-            work_screen=float(json_input.get("work_screen_hours", 0)),
-            leisure_screen=float(json_input.get("leisure_screen_hours", 0)),
+            screen_time=screen_time_val,
+            work_screen=work_screen_val,
+            leisure_screen=leisure_screen_val,
             sleep_hours=float(json_input.get("sleep_hours", 0)),
             stress_level=float(json_input.get("stress_level_0_10", 0)),
             productivity=float(json_input.get("productivity_0_100", 0)),
