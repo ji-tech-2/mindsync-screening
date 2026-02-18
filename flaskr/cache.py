@@ -4,6 +4,7 @@ Valkey/Redis cache management
 
 import json
 import logging
+import socket
 import threading
 import time
 import uuid
@@ -17,7 +18,12 @@ valkey_client = None
 # Stream configuration
 HANDOVER_STREAM = "handover_stream"
 CONSUMER_GROUP = "screening_group"
-CONSUMER_NAME = "worker_1"
+# Generate unique consumer name per instance to avoid round-robin in multi-instance deployments
+try:
+    hostname = socket.gethostname()
+except Exception:
+    hostname = "unknown"
+CONSUMER_NAME = f"worker_{hostname}_{uuid.uuid4().hex[:8]}"
 
 # Worker control
 worker_thread = None
@@ -49,10 +55,13 @@ def init_app(app):
         if not app.config.get("DB_DISABLED", False):
             logger.info("Starting handover worker thread")
             worker_running = True
-            worker_thread = threading.Thread(
+            # Use local variable to avoid race conditions
+            local_thread = threading.Thread(
                 target=_handover_worker, args=(app._get_current_object(),), daemon=True
             )
-            worker_thread.start()
+            local_thread.start()
+            # Assign to global after thread is started
+            worker_thread = local_thread
             logger.info("Handover worker thread started")
         else:
             logger.info("Database disabled, skipping handover worker")
@@ -270,37 +279,38 @@ def _process_handover(app, message_data):
         # Import db here to avoid circular imports
         from .db import db, Predictions
 
+        # Reuse the same app context for both commit and rollback
         with app.app_context():
-            # Update all predictions for this guest_id
-            predictions_updated = (
-                db.session.query(Predictions)
-                .filter(Predictions.guest_id == guest_uuid)
-                .update(
-                    {Predictions.user_id: user_uuid, Predictions.guest_id: None},
-                    synchronize_session=False,
+            try:
+                # Update all predictions for this guest_id
+                predictions_updated = (
+                    db.session.query(Predictions)
+                    .filter(Predictions.guest_id == guest_uuid)
+                    .update(
+                        {Predictions.user_id: user_uuid, Predictions.guest_id: None},
+                        synchronize_session=False,
+                    )
                 )
-            )
 
-            db.session.commit()
+                db.session.commit()
 
-            logger.info(
-                "Handover completed: %d predictions transferred from guest_id=%s to user_id=%s",
-                predictions_updated,
-                guest_id_str,
-                user_id_str,
-            )
+                logger.info(
+                    "Handover completed: %d predictions transferred from guest_id=%s to user_id=%s",
+                    predictions_updated,
+                    guest_id_str,
+                    user_id_str,
+                )
 
-            return True
+                return True
+            except Exception as db_error:
+                logger.error(
+                    "Database error during handover: %s", db_error, exc_info=True
+                )
+                db.session.rollback()
+                raise
 
     except Exception as e:
         logger.error("Error processing handover: %s", e, exc_info=True)
-        try:
-            from .db import db
-
-            with app.app_context():
-                db.session.rollback()
-        except Exception:
-            pass
         return False
 
 

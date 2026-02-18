@@ -35,7 +35,7 @@ class Predictions(db.Model):
 
     pred_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = db.Column(UUID(as_uuid=True), nullable=True, index=True)
-    guest_id = db.Column(UUID(as_uuid=True), nullable=True)
+    guest_id = db.Column(UUID(as_uuid=True), nullable=True, index=True)
     pred_date = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Input Data
