@@ -62,7 +62,7 @@ jobs:
 
           # Parse coverage percentage
           if [ -f coverage_output.txt ]; then
-            COVERAGE=$(grep -oP 'TOTAL.*\K\d+%' coverage_output.txt || echo "N/A")
+            COVERAGE=$(grep -oP 'Total coverage: \K[\d.]+%' coverage_output.txt || echo "N/A")
             echo "**Code Coverage**: $COVERAGE (Required: ≥80%)" >> $GITHUB_STEP_SUMMARY
           fi
 
