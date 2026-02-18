@@ -4,7 +4,7 @@ Unit tests for predict.py endpoints and processing functions
 
 import uuid
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 from flask import Flask
 
@@ -242,6 +242,56 @@ class TestStreakEndpoint:
             # Current streaks should be 0
             assert json_data["data"]["current_streak"]["daily"] == 0
             assert json_data["data"]["current_streak"]["weekly"] == 0
+
+    @patch("flaskr.predict.Predictions")
+    def test_streak_daily_grace_one_day(self, mock_predictions, client, app):
+        """If today not screened but yesterday screened, daily streak should persist."""
+        user_id = str(uuid.uuid4())
+
+        pred_yesterday = MagicMock()
+        pred_yesterday.pred_date = datetime.now() - timedelta(days=1)
+
+        pred_two_days_ago = MagicMock()
+        pred_two_days_ago.pred_date = datetime.now() - timedelta(days=2)
+
+        with app.app_context():
+            mock_predictions.query.filter_by.return_value.all.return_value = [
+                pred_yesterday,
+                pred_two_days_ago,
+            ]
+
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/streak")
+
+            assert response.status_code == 200
+            json_data = response.get_json()
+            assert json_data["status"] == "success"
+            assert json_data["data"]["current_streak"]["daily"] == 2
+
+    @patch("flaskr.predict.Predictions")
+    def test_streak_weekly_grace_one_week(self, mock_predictions, client, app):
+        """If current week empty but previous weeks have check-ins, weekly streak persists."""
+        user_id = str(uuid.uuid4())
+
+        pred_last_week = MagicMock()
+        pred_last_week.pred_date = datetime.now() - timedelta(days=7)
+
+        pred_two_weeks_ago = MagicMock()
+        pred_two_weeks_ago.pred_date = datetime.now() - timedelta(days=14)
+
+        with app.app_context():
+            mock_predictions.query.filter_by.return_value.all.return_value = [
+                pred_last_week,
+                pred_two_weeks_ago,
+            ]
+
+            with patch("flaskr.predict.get_jwt_identity", return_value=user_id):
+                response = client.get("/streak")
+
+            assert response.status_code == 200
+            json_data = response.get_json()
+            assert json_data["status"] == "success"
+            assert json_data["data"]["current_streak"]["weekly"] == 2
 
     def test_streak_db_disabled(self, client, app):
         """Test streak endpoint when database is disabled."""
