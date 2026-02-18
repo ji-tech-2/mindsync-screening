@@ -1254,6 +1254,7 @@ def process_prediction(
             ridge_start = time.time()
             prediction = model.model.predict(df)
             prediction_score = float(prediction[0])
+            prediction_score = max(0, min(100, prediction_score))  # Clamp to [0, 100]
             ridge_prediction_time = (time.time() - ridge_start) * 1000  # Convert to ms
 
             logger.info(
