@@ -170,7 +170,7 @@ Edit [.env](.env) file:
 
 ```env
 # Gemini AI
-GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_API_KEYS=your_gemini_api_key_here
 
 # Database (Optional for dev)
 DATABASE_URL=postgresql://user:pass@host:port/dbname
@@ -240,7 +240,7 @@ docker run -p 5000:5000 \
   -e WANDB_API_KEY=your-api-key \
   -e WANDB_PROJECT=mindsync-model \
   -e WANDB_ENTITY=your-username \
-  -e GEMINI_API_KEY=your-gemini-key \
+  -e GEMINI_API_KEYS=your-gemini-key \
   mindsync-inference
 ```
 
@@ -267,7 +267,7 @@ Setup secrets di repository:
 
 - `WANDB_API_KEY`
 - `WANDB_ENTITY`
-- `GEMINI_API_KEY`
+- `GEMINI_API_KEYS`
 
 ## 📡 API Endpoints
 
@@ -938,7 +938,7 @@ docker run -p 5000:5000 --env-file .env mindsync-api
   - Jika `DB_DISABLED=True` **dan** Valkey/Redis tidak tersedia, endpoint `/predict` tetap akan mengembalikan `202` dengan `prediction_id`, tetapi `/result` untuk ID tersebut tidak akan pernah selesai (status tidak akan menjadi `ready`).
 - **Database**: Bisa dibuat optional untuk development **jika** Valkey/Redis aktif; app akan menampilkan warning tetapi prediksi tetap bisa diproses dan dilacak melalui cache.
 - **Valkey/Redis**: Optional **jika** database aktif; tanpa cache performa bisa lebih lambat, namun prediksi dan tracking status tetap berjalan melalui database.
-- **Gemini API**: Wajib untuk fitur AI advice; tanpa `GEMINI_API_KEY` endpoint terkait AI akan gagal (sebaiknya ditangani dengan error yang jelas di API).
+- **Gemini API**: Wajib untuk fitur AI advice; tanpa `GEMINI_API_KEYS` endpoint terkait AI akan gagal (sebaiknya ditangani dengan error yang jelas di API).
 
 ## 🔧 Development Guide
 
@@ -993,7 +993,7 @@ GUNICORN_WORKER_CLASS=gthread # Use threaded workers for efficiency
 # See MEMORY-OPTIMIZATION.md for tuning guidance
 
 # Application Configuration
-GEMINI_API_KEY=xxx           # Required for AI features
+GEMINI_API_KEYS=xxx           # Required for AI features
 DATABASE_URL=postgresql://   # Optional database
 VALKEY_URL=redis://          # Optional cache
 WANDB_API_KEY=xxx            # For artifact downloads
@@ -1033,7 +1033,7 @@ pip install -r requirements.txt
 
 ### API Key Missing
 
-Check that `.env` file exists and contains valid `GEMINI_API_KEY` and `WANDB_API_KEY`.
+Check that `.env` file exists and contains valid `GEMINI_API_KEYS` and `WANDB_API_KEY`.
 
 ### Port Already in Use
 

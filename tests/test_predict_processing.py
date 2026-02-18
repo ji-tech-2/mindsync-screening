@@ -16,7 +16,7 @@ def app_context():
     app = Flask(__name__)
     app.config["TESTING"] = True
     app.config["DB_DISABLED"] = False
-    app.config["GEMINI_API_KEY"] = "test-key"
+    app.config["GEMINI_API_KEYS"] = "test-key"
 
     from flaskr import db as db_module
 

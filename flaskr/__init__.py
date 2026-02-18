@@ -41,7 +41,7 @@ def create_app(test_config=None):
     app.config.from_mapping(
         SECRET_KEY=os.getenv("SECRET_KEY", "dev"),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        GEMINI_API_KEY=os.getenv("GEMINI_API_KEY"),
+        GEMINI_API_KEYS=os.getenv("GEMINI_API_KEYS"),
         VALKEY_URL=os.getenv("VALKEY_URL", "redis://localhost:6379"),
         DB_DISABLED=not db_enabled,
         JWT_PUBLIC_KEY=os.getenv("JWT_PUBLIC_KEY"),
