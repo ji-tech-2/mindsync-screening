@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 
 logger = logging.getLogger(__name__)
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.5-flash"
 _rotation_index = 0
 _rotation_lock = threading.Lock()
 
