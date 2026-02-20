@@ -163,32 +163,17 @@ bp = Blueprint("predict", __name__, url_prefix="/")
 
 @bp.route("/predict", methods=["POST"])
 def predict():
-    """Main prediction endpoint - returns prediction_id immediately."""
+    """
+    Main prediction endpoint - Synchronous Prediction + Asynchronous Storage.
+    
+    Returns prediction result immediately (200 OK) after fast model inference.
+    Storage to cache and database happens in background thread.
+    """
     logger.info("Received POST request to /predict")
 
     if model.model is None:
         logger.error("Model not loaded - cannot process prediction")
         return jsonify({"error": "Model failed to load. Check server logs."}), 500
-
-    # Check if at least one storage backend is available
-    db_enabled = not current_app.config.get("DB_DISABLED", False)
-    cache_available = cache.is_available()
-    logger.debug("Storage backends - DB: %s, Cache: %s", db_enabled, cache_available)
-
-    if not db_enabled and not cache_available:
-        logger.error("No storage backend available for predictions")
-        return (
-            jsonify(
-                {
-                    "error": "No storage backend available",
-                    "message": (
-                        "Both database and cache are unavailable. "
-                        "Cannot process predictions."
-                    ),
-                }
-            ),
-            503,
-        )
 
     try:
         json_input = request.get_json()
@@ -223,53 +208,113 @@ def predict():
         # Generate unique prediction_id
         prediction_id = str(uuid.uuid4())
         created_at = datetime.now().isoformat()
-        # Capture start timestamp for end-to-end latency tracking
         start_ts = time.time()
         logger.info("Created prediction request with ID: %s", prediction_id)
 
-        # Initialize status as processing
-        cache.store_prediction(
-            prediction_id,
-            {
-                "status": "processing",
-                "result": None,
-                "created_at": created_at,
-                "user_id": user_id,
-                "guest_id": guest_id,
-            },
-        )
-        logger.debug("Initial status stored in cache for %s", prediction_id)
+        # ========================================
+        # SYNCHRONOUS PREDICTION (Fast - ~20ms)
+        # ========================================
+        
+        # Convert input to DataFrame
+        if isinstance(json_input, dict):
+            df = pd.DataFrame([json_input])
+        else:
+            df = pd.DataFrame(json_input)
+        logger.debug("Input converted to DataFrame with shape %s", df.shape)
 
-        # Start background processing
-        logger.info("Starting background processing thread for %s", prediction_id)
+        # Run model prediction synchronously
+        logger.info("Running synchronous model prediction for %s", prediction_id)
+        ridge_start = time.time()
+        prediction = model.model.predict(df)
+        prediction_score = float(prediction[0])
+        prediction_score = max(0, min(100, prediction_score))  # Clamp to [0, 100]
+        ridge_prediction_time = (time.time() - ridge_start) * 1000  # Convert to ms
+        
+        logger.info(
+            "Prediction score for %s: %.2f (inference took %.2f ms)", 
+            prediction_id, prediction_score, ridge_prediction_time
+        )
+
+        # Analyze wellness factors
+        logger.debug("Analyzing wellness factors for %s", prediction_id)
+        wellness_analysis = model.analyze_wellness_factors(df)
+        if not wellness_analysis:
+            logger.warning(
+                "Wellness analysis failed for %s, using fallback", prediction_id
+            )
+            wellness_analysis = {"areas_for_improvement": [], "strengths": []}
+        else:
+            logger.debug("Wellness analysis complete for %s", prediction_id)
+
+        # Categorize mental health
+        mental_health_category = model.categorize_mental_health_score(
+            prediction_score
+        )
+        logger.info(
+            f"Mental health category for {prediction_id}: {mental_health_category}"
+        )
+
+        # Calculate total processing time
+        total_processing_ms = (time.time() - start_ts) * 1000
+
+        # Build result object for immediate response
+        result = {
+            "prediction_score": prediction_score,
+            "health_level": mental_health_category,
+            "wellness_analysis": wellness_analysis,
+            "timing": {
+                "ridge_prediction_ms": round(ridge_prediction_time, 2),
+                "total_processing_ms": round(total_processing_ms, 2),
+            },
+        }
+
+        logger.info(
+            "⏱️  [INSTANT RESPONSE] Total processing time: %.2f ms", 
+            total_processing_ms
+        )
+
+        # ========================================
+        # BACKGROUND STORAGE (Async)
+        # ========================================
+        
+        # Get Flask app context for background thread
+        app_context = current_app._get_current_object().app_context()
+        
+        # Start background storage thread
+        logger.info("Starting background storage thread for %s", prediction_id)
         thread = threading.Thread(
-            target=process_prediction,
+            target=save_to_storage_background,
             args=(
                 prediction_id,
                 json_input,
+                prediction_score,
+                mental_health_category,
+                wellness_analysis,
                 created_at,
-                start_ts,
-                current_app._get_current_object(),
+                ridge_prediction_time,
+                total_processing_ms,
                 user_id,
                 guest_id,
+                app_context,
             ),
         )
         thread.daemon = True
         thread.start()
-        logger.debug("Background thread started for %s", prediction_id)
+        logger.debug("Background storage thread started for %s", prediction_id)
 
+        # ========================================
+        # INSTANT RESPONSE (200 OK)
+        # ========================================
+        
         return (
             jsonify(
                 {
                     "prediction_id": prediction_id,
-                    "status": "processing",
-                    "message": (
-                        "Prediction is being processed. Use /result/<prediction_id> "
-                        "to check status."
-                    ),
+                    "status": "success",
+                    "result": result,
                 }
             ),
-            202,
+            200,
         )
 
     except Exception as e:
@@ -1233,6 +1278,209 @@ def format_db_output(data):
             "factors": ai_advice_dict,
         },
     }
+
+
+def save_to_storage_background(
+    prediction_id,
+    json_input,
+    prediction_score,
+    mental_health_category,
+    wellness_analysis,
+    created_at,
+    ridge_prediction_time,
+    total_processing_ms,
+    user_id,
+    guest_id,
+    app_context,
+):
+    """
+    Background worker to save prediction results to cache and database.
+    
+    This function runs in a separate thread and handles:
+    1. Storing prediction result to Valkey (cache)
+    2. Saving prediction to Postgres (database)
+    3. Generating AI advice (if user is authenticated)
+    4. Updating cache with AI advice when complete
+    
+    Args:
+        prediction_id: Unique prediction identifier
+        json_input: Original input data
+        prediction_score: ML model prediction score
+        mental_health_category: Categorized health level
+        wellness_analysis: Wellness factors analysis
+        created_at: Timestamp of prediction creation
+        ridge_prediction_time: Time taken for model inference (ms)
+        total_processing_ms: Total synchronous processing time (ms)
+        user_id: Authenticated user ID (if any)
+        guest_id: Guest user ID (if any)
+        app_context: Flask app context for database/cache operations
+    """
+    try:
+        with app_context:
+            logger.info(
+                "⚙️  [BACKGROUND] Starting storage operations for %s", prediction_id
+            )
+            storage_start = time.time()
+
+            # ========================================
+            # 1. SAVE TO CACHE (Valkey)
+            # ========================================
+            
+            try:
+                logger.debug("Storing prediction result to cache for %s", prediction_id)
+                cache.store_prediction(
+                    prediction_id,
+                    {
+                        "status": "success",
+                        "result": {
+                            "prediction_score": prediction_score,
+                            "health_level": mental_health_category,
+                            "wellness_analysis": wellness_analysis,
+                            "advice": None,  # Will be updated after AI processing
+                            "timing": {
+                                "ridge_prediction_ms": round(ridge_prediction_time, 2),
+                                "total_processing_ms": round(total_processing_ms, 2),
+                            },
+                        },
+                        "created_at": created_at,
+                        "user_id": user_id,
+                        "guest_id": guest_id,
+                    },
+                )
+                logger.info("✅ Cache storage completed for %s", prediction_id)
+            except Exception as cache_error:
+                logger.error(
+                    "❌ Failed to store prediction %s to cache: %s",
+                    prediction_id,
+                    cache_error,
+                    exc_info=True,
+                )
+
+            # ========================================
+            # 2. GENERATE AI ADVICE (if authenticated)
+            # ========================================
+            
+            ai_advice = None
+            if guest_id and not user_id:
+                logger.info(
+                    "Guest user detected for %s - Skipping AI advice generation",
+                    prediction_id,
+                )
+                ai_advice = {
+                    "factors": {},
+                    "description": "Log in to view personalized AI advice.",
+                }
+            else:
+                logger.info("Generating AI advice for %s", prediction_id)
+                try:
+                    api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
+                    ai_advice = ai.get_ai_advice(
+                        prediction_score,
+                        mental_health_category,
+                        wellness_analysis,
+                        api_keys_pool,
+                    )
+
+                    if not ai_advice or not isinstance(ai_advice, dict):
+                        logger.warning(
+                            "AI advice generation failed for %s, using fallback",
+                            prediction_id,
+                        )
+                        ai_advice = {
+                            "factors": {},
+                            "description": "AI advice could not be generated at this time.",
+                        }
+                    else:
+                        logger.info(
+                            "✅ AI advice generated successfully for %s", prediction_id
+                        )
+                except Exception as ai_error:
+                    logger.error(
+                        "❌ AI advice generation error for %s: %s",
+                        prediction_id,
+                        ai_error,
+                        exc_info=True,
+                    )
+                    ai_advice = {
+                        "factors": {},
+                        "description": "AI advice could not be generated at this time.",
+                    }
+
+            # ========================================
+            # 3. SAVE TO DATABASE (Postgres)
+            # ========================================
+            
+            if not current_app.config.get("DB_DISABLED", False):
+                try:
+                    logger.debug("Saving prediction %s to database", prediction_id)
+                    save_to_db(
+                        prediction_id,
+                        json_input,
+                        prediction_score,
+                        wellness_analysis,
+                        ai_advice,
+                        user_id,
+                        guest_id,
+                    )
+                    logger.info(
+                        "✅ Database save completed for %s", prediction_id
+                    )
+                except Exception as db_error:
+                    logger.error(
+                        "❌ Failed to save prediction %s to database: %s",
+                        prediction_id,
+                        db_error,
+                        exc_info=True,
+                    )
+            else:
+                logger.debug("Database disabled, skipping DB save for %s", prediction_id)
+
+            # ========================================
+            # 4. UPDATE CACHE WITH AI ADVICE
+            # ========================================
+            
+            try:
+                logger.debug("Updating cache with AI advice for %s", prediction_id)
+                cache.update_prediction(
+                    prediction_id,
+                    {
+                        "status": "ready",
+                        "result": {
+                            "prediction_score": prediction_score,
+                            "health_level": mental_health_category,
+                            "wellness_analysis": wellness_analysis,
+                            "advice": ai_advice,
+                            "timing": {
+                                "ridge_prediction_ms": round(ridge_prediction_time, 2),
+                                "total_processing_ms": round(total_processing_ms, 2),
+                            },
+                        },
+                        "completed_at": datetime.now().isoformat(),
+                    },
+                )
+                logger.info("✅ Cache updated with AI advice for %s", prediction_id)
+            except Exception as cache_update_error:
+                logger.error(
+                    "❌ Failed to update cache with AI advice for %s: %s",
+                    prediction_id,
+                    cache_update_error,
+                    exc_info=True,
+                )
+
+            storage_time = (time.time() - storage_start) * 1000
+            logger.info(
+                "⏱️  [BACKGROUND] Total storage time for %s: %.2f ms",
+                prediction_id,
+                storage_time,
+            )
+
+    except Exception as e:
+        logger.error(
+            "❌ [BACKGROUND] Critical error in storage worker for %s: %s",
+            prediction_id,
+            e,
+            exc_info=True,
+        )
 
 
 def process_prediction(
