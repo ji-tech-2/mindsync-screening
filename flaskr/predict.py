@@ -237,17 +237,6 @@ def predict():
             ridge_prediction_time,
         )
 
-        # Analyze wellness factors
-        logger.debug("Analyzing wellness factors for %s", prediction_id)
-        wellness_analysis = model.analyze_wellness_factors(df)
-        if not wellness_analysis:
-            logger.warning(
-                "Wellness analysis failed for %s, using fallback", prediction_id
-            )
-            wellness_analysis = {"areas_for_improvement": [], "strengths": []}
-        else:
-            logger.debug("Wellness analysis complete for %s", prediction_id)
-
         # Categorize mental health
         mental_health_category = model.categorize_mental_health_score(prediction_score)
         logger.info(
@@ -257,11 +246,10 @@ def predict():
         # Calculate total processing time
         total_processing_ms = (time.time() - start_ts) * 1000
 
-        # Build result object for immediate response
+        # Build result object for immediate response (wellness_analysis computed in background)
         result = {
             "prediction_score": prediction_score,
             "health_level": mental_health_category,
-            "wellness_analysis": wellness_analysis,
             "timing": {
                 "ridge_prediction_ms": round(ridge_prediction_time, 2),
                 "total_processing_ms": round(total_processing_ms, 2),
@@ -288,7 +276,6 @@ def predict():
                 json_input,
                 prediction_score,
                 mental_health_category,
-                wellness_analysis,
                 created_at,
                 ridge_prediction_time,
                 total_processing_ms,
@@ -1284,7 +1271,6 @@ def save_to_storage_background(
     json_input,
     prediction_score,
     mental_health_category,
-    wellness_analysis,
     created_at,
     ridge_prediction_time,
     total_processing_ms,
@@ -1296,17 +1282,17 @@ def save_to_storage_background(
     Background worker to save prediction results to cache and database.
 
     This function runs in a separate thread and handles:
-    1. Storing prediction result to Valkey (cache)
-    2. Saving prediction to Postgres (database)
-    3. Generating AI advice (if user is authenticated)
-    4. Updating cache with AI advice when complete
+    1. Computing wellness analysis (off the main thread)
+    2. Storing prediction result to Valkey (cache)
+    3. Saving prediction to Postgres (database) with advice=None
+    4. Generating AI advice (if user is authenticated)
+    5. Updating cache with AI advice when complete
 
     Args:
         prediction_id: Unique prediction identifier
-        json_input: Original input data
+        json_input: Original JSON input data
         prediction_score: ML model prediction score
         mental_health_category: Categorized health level
-        wellness_analysis: Wellness factors analysis
         created_at: Timestamp of prediction creation
         ridge_prediction_time: Time taken for model inference (ms)
         total_processing_ms: Total synchronous processing time (ms)
@@ -1322,7 +1308,26 @@ def save_to_storage_background(
             storage_start = time.time()
 
             # ========================================
-            # 1. SAVE TO CACHE (Valkey)
+            # 0. COMPUTE WELLNESS ANALYSIS (background)
+            # ========================================
+
+            if isinstance(json_input, dict):
+                df = pd.DataFrame([json_input])
+            else:
+                df = pd.DataFrame(json_input)
+
+            logger.debug("Analyzing wellness factors in background for %s", prediction_id)
+            wellness_analysis = model.analyze_wellness_factors(df)
+            if not wellness_analysis:
+                logger.warning(
+                    "Wellness analysis failed for %s, using fallback", prediction_id
+                )
+                wellness_analysis = {"areas_for_improvement": [], "strengths": []}
+            else:
+                logger.debug("Wellness analysis complete for %s", prediction_id)
+
+            # ========================================
+            # 1. SAVE TO CACHE (Valkey) — first
             # ========================================
 
             try:
@@ -1330,7 +1335,7 @@ def save_to_storage_background(
                 cache.store_prediction(
                     prediction_id,
                     {
-                        "status": "success",
+                        "status": "partial",
                         "result": {
                             "prediction_score": prediction_score,
                             "health_level": mental_health_category,
@@ -1356,7 +1361,36 @@ def save_to_storage_background(
                 )
 
             # ========================================
-            # 2. GENERATE AI ADVICE (if authenticated)
+            # 2. SAVE TO DATABASE (Postgres) — advice=None
+            # ========================================
+
+            if not current_app.config.get("DB_DISABLED", False):
+                try:
+                    logger.debug("Saving prediction %s to database (advice=None)", prediction_id)
+                    save_to_db(
+                        prediction_id,
+                        json_input,
+                        prediction_score,
+                        wellness_analysis,
+                        None,  # AI advice not yet generated
+                        user_id,
+                        guest_id,
+                    )
+                    logger.info("✅ Database save completed for %s", prediction_id)
+                except Exception as db_error:
+                    logger.error(
+                        "❌ Failed to save prediction %s to database: %s",
+                        prediction_id,
+                        db_error,
+                        exc_info=True,
+                    )
+            else:
+                logger.debug(
+                    "Database disabled, skipping DB save for %s", prediction_id
+                )
+
+            # ========================================
+            # 3. GENERATE AI ADVICE (if authenticated)
             # ========================================
 
             ai_advice = None
@@ -1404,35 +1438,6 @@ def save_to_storage_background(
                         "factors": {},
                         "description": "AI advice could not be generated at this time.",
                     }
-
-            # ========================================
-            # 3. SAVE TO DATABASE (Postgres)
-            # ========================================
-
-            if not current_app.config.get("DB_DISABLED", False):
-                try:
-                    logger.debug("Saving prediction %s to database", prediction_id)
-                    save_to_db(
-                        prediction_id,
-                        json_input,
-                        prediction_score,
-                        wellness_analysis,
-                        ai_advice,
-                        user_id,
-                        guest_id,
-                    )
-                    logger.info("✅ Database save completed for %s", prediction_id)
-                except Exception as db_error:
-                    logger.error(
-                        "❌ Failed to save prediction %s to database: %s",
-                        prediction_id,
-                        db_error,
-                        exc_info=True,
-                    )
-            else:
-                logger.debug(
-                    "Database disabled, skipping DB save for %s", prediction_id
-                )
 
             # ========================================
             # 4. UPDATE CACHE WITH AI ADVICE
