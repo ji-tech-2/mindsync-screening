@@ -1284,9 +1284,9 @@ def save_to_storage_background(
     This function runs in a separate thread and handles:
     1. Computing wellness analysis (off the main thread)
     2. Storing prediction result to Valkey (cache)
-    3. Saving prediction to Postgres (database) with advice=None
-    4. Generating AI advice (if user is authenticated)
-    5. Updating cache with AI advice when complete
+    3. Generating AI advice (if user is authenticated)
+    4. Updating cache with AI advice when complete
+    5. Saving prediction to Postgres (database) with full ai_advice
 
     Args:
         prediction_id: Unique prediction identifier
@@ -1363,38 +1363,7 @@ def save_to_storage_background(
                 )
 
             # ========================================
-            # 2. SAVE TO DATABASE (Postgres) — advice=None
-            # ========================================
-
-            if not current_app.config.get("DB_DISABLED", False):
-                try:
-                    logger.debug(
-                        "Saving prediction %s to database (advice=None)", prediction_id
-                    )
-                    save_to_db(
-                        prediction_id,
-                        json_input,
-                        prediction_score,
-                        wellness_analysis,
-                        None,  # AI advice not yet generated
-                        user_id,
-                        guest_id,
-                    )
-                    logger.info("✅ Database save completed for %s", prediction_id)
-                except Exception as db_error:
-                    logger.error(
-                        "❌ Failed to save prediction %s to database: %s",
-                        prediction_id,
-                        db_error,
-                        exc_info=True,
-                    )
-            else:
-                logger.debug(
-                    "Database disabled, skipping DB save for %s", prediction_id
-                )
-
-            # ========================================
-            # 3. GENERATE AI ADVICE (if authenticated)
+            # 2. GENERATE AI ADVICE (if authenticated)
             # ========================================
 
             ai_advice = None
@@ -1444,7 +1413,7 @@ def save_to_storage_background(
                     }
 
             # ========================================
-            # 4. UPDATE CACHE WITH AI ADVICE
+            # 3. UPDATE CACHE WITH AI ADVICE
             # ========================================
 
             try:
@@ -1473,6 +1442,37 @@ def save_to_storage_background(
                     prediction_id,
                     cache_update_error,
                     exc_info=True,
+                )
+
+            # ========================================
+            # 4. SAVE TO DATABASE (Postgres) — with full ai_advice
+            # ========================================
+
+            if not current_app.config.get("DB_DISABLED", False):
+                try:
+                    logger.debug(
+                        "Saving prediction %s to database (with ai_advice)", prediction_id
+                    )
+                    save_to_db(
+                        prediction_id,
+                        json_input,
+                        prediction_score,
+                        wellness_analysis,
+                        ai_advice,
+                        user_id,
+                        guest_id,
+                    )
+                    logger.info("✅ Database save completed for %s", prediction_id)
+                except Exception as db_error:
+                    logger.error(
+                        "❌ Failed to save prediction %s to database: %s",
+                        prediction_id,
+                        db_error,
+                        exc_info=True,
+                    )
+            else:
+                logger.debug(
+                    "Database disabled, skipping DB save for %s", prediction_id
                 )
 
             storage_time = (time.time() - storage_start) * 1000
