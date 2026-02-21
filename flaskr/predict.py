@@ -1316,7 +1316,9 @@ def save_to_storage_background(
             else:
                 df = pd.DataFrame(json_input)
 
-            logger.debug("Analyzing wellness factors in background for %s", prediction_id)
+            logger.debug(
+                "Analyzing wellness factors in background for %s", prediction_id
+            )
             wellness_analysis = model.analyze_wellness_factors(df)
             if not wellness_analysis:
                 logger.warning(
@@ -1366,7 +1368,9 @@ def save_to_storage_background(
 
             if not current_app.config.get("DB_DISABLED", False):
                 try:
-                    logger.debug("Saving prediction %s to database (advice=None)", prediction_id)
+                    logger.debug(
+                        "Saving prediction %s to database (advice=None)", prediction_id
+                    )
                     save_to_db(
                         prediction_id,
                         json_input,
