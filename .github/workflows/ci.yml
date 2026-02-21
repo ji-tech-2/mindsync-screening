@@ -101,3 +101,95 @@ jobs:
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "_All metrics meet required standards_ ✅" >> $GITHUB_STEP_SUMMARY
+
+  latency-test:
+    name: Run Locust Latency Test
+    runs-on: ubuntu-latest
+    # Opsional: Pastikan test unit selesai dulu sebelum stress test
+    needs: test 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Locust & Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install locust
+          # Jika API-mu butuh library tambahan dari requirements, uncomment baris di bawah:
+          # pip install -r requirements.txt
+
+      # [OPSIONAL] Jika kamu mengetes API Flask yang berjalan di GHA runner ini:
+      # - name: Start Flask Server
+      #   run: |
+      #     flask run --port=5000 &
+      #     sleep 5 # Beri waktu agar server menyala
+
+      - name: Run Locust Headless
+        run: |
+          # --headless: Jalan tanpa UI
+          # -u: Total Users (contoh: 50)
+          # -r: Spawn rate / user per detik (contoh: 5)
+          # --run-time: Lama test berjalan (diatur menjadi 1 menit)
+          # --csv: Menyimpan hasil report dalam prefix 'locust_metrics'
+          # --host: Base URL dari target API kamu
+          locust -f tests/locustfile.py \
+            --headless \
+            -u 50 \
+            -r 5 \
+            --run-time 1m \
+            --host=https://api.mindsync.my \
+            --csv=locust_metrics
+
+      - name: Parse and Display Locust Results
+        if: always()
+        run: |
+          echo "## 🚀 Locust Latency & Load Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Locust secara otomatis menghasilkan file dengan suffix _stats.csv
+          if [ -f locust_metrics_stats.csv ]; then
+            # Menggunakan inline Python untuk membaca CSV dan mengubahnya menjadi Markdown Table
+            python -c '
+            import csv
+            with open("locust_metrics_stats.csv", "r") as f:
+                reader = csv.reader(f)
+                headers = next(reader)
+                
+                # Mengambil kolom: Type, Name, Requests, Failures, Median (ms), 95%ile (ms), RPS
+                # Index kolom CSV Locust default: 0=Type, 1=Name, 2=Request Count, 3=Failure Count, 11=Median, 14=95%, 9=Current RPS
+                indices = [0, 1, 2, 3, 11, 14, 9] 
+                
+                def print_row(row):
+                    cols = [row[i] for i in indices if i < len(row)]
+                    print("| " + " | ".join(cols) + " |")
+                
+                # Print Header
+                header_row = [headers[i] for i in indices if i < len(headers)]
+                print("| " + " | ".join(header_row) + " |")
+                print("|" + "|".join(["---"] * len(header_row)) + "|")
+                
+                # Print Data
+                for row in reader:
+                    if row and row[0] != "":
+                        print_row(row)
+            ' >> $GITHUB_STEP_SUMMARY
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Cek jika ada failures pada baris terakhir (Aggregated total)
+            FAILURES=$(tail -n 1 locust_metrics_stats.csv | awk -F',' '{print $4}')
+            if [ "$FAILURES" != "0" ] && [ -n "$FAILURES" ]; then
+               echo "⚠️ **Status**: Test selesai dengan **$FAILURES failures**. Cek log untuk detailnya." >> $GITHUB_STEP_SUMMARY
+            else
+               echo "✅ **Status**: Semua request berhasil (0 Failures)." >> $GITHUB_STEP_SUMMARY
+            fi
+            
+          else
+            echo "❌ **Error**: File CSV Locust tidak ditemukan. Test mungkin gagal dijalankan." >> $GITHUB_STEP_SUMMARY
+          fi     
