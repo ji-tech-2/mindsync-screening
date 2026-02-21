@@ -21,7 +21,7 @@ backlog = 2048
 # Worker Processes - OPTIMIZED FOR ML MODEL MEMORY USAGE
 # Default: 2 workers with 2 threads each = 4 concurrent requests
 # Adjust GUNICORN_WORKERS and GUNICORN_THREADS based on your memory
-workers = int(os.getenv("GUNICORN_WORKERS", "2"))  # Conservative default
+workers = int(os.getenv("GUNICORN_WORKERS", "4"))  # Conservative default
 worker_class = os.getenv(
     "GUNICORN_WORKER_CLASS", "gthread"
 )  # Use threads for memory efficiency

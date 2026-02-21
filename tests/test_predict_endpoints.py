@@ -49,8 +49,16 @@ class TestPredictEndpoint:
     @patch("flaskr.predict.cache")
     @patch("flaskr.predict.threading.Thread")
     def test_predict_success(self, mock_thread, mock_cache, mock_model, client):
-        """Test successful prediction request."""
+        """Test successful prediction request (synchronous prediction, async storage)."""
+        import numpy as np
+
         mock_model.model = MagicMock()
+        mock_model.model.predict.return_value = np.array([75.5])
+        mock_model.analyze_wellness_factors.return_value = {
+            "areas_for_improvement": [],
+            "strengths": [],
+        }
+        mock_model.categorize_mental_health_score.return_value = "Good"
         mock_cache.is_available.return_value = True
 
         data = {
@@ -64,10 +72,13 @@ class TestPredictEndpoint:
 
         response = client.post("/predict", json=data)
 
-        assert response.status_code == 202
+        assert response.status_code == 200
         json_data = response.get_json()
         assert "prediction_id" in json_data
-        assert json_data["status"] == "processing"
+        assert json_data["status"] == "success"
+        assert "result" in json_data
+        assert json_data["result"]["prediction_score"] == 75.5
+        assert json_data["result"]["health_level"] == "Good"
         mock_thread.assert_called_once()
 
     @patch("flaskr.predict.model")
@@ -83,19 +94,38 @@ class TestPredictEndpoint:
 
     @patch("flaskr.predict.model")
     @patch("flaskr.predict.cache")
-    def test_predict_no_storage_backend(self, mock_cache, mock_model, client, app):
-        """Test prediction when no storage backend is available."""
+    @patch("flaskr.predict.threading.Thread")
+    def test_predict_no_storage_backend(
+        self, mock_thread, mock_cache, mock_model, client, app
+    ):
+        """Test prediction still works when no storage backend is available.
+
+        With synchronous prediction architecture, the endpoint returns the
+        prediction result even when storage backends are unavailable.
+        Storage errors are handled in the background thread.
+        """
+        import numpy as np
+
         mock_model.model = MagicMock()
+        mock_model.model.predict.return_value = np.array([60.0])
+        mock_model.analyze_wellness_factors.return_value = {
+            "areas_for_improvement": [],
+            "strengths": [],
+        }
+        mock_model.categorize_mental_health_score.return_value = "Moderate"
         mock_cache.is_available.return_value = False
 
         with app.app_context():
             app.config["DB_DISABLED"] = True
 
-            response = client.post("/predict", json={})
+            data = {"sleep_hours": 7.0, "stress_level_0_10": 5}
+            response = client.post("/predict", json=data)
 
-            assert response.status_code == 503
+            assert response.status_code == 200
             json_data = response.get_json()
-            assert "No storage backend available" in json_data["error"]
+            assert json_data["status"] == "success"
+            assert "result" in json_data
+            mock_thread.assert_called_once()
 
 
 class TestGetResultEndpoint:
