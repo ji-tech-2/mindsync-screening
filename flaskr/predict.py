@@ -1451,7 +1451,8 @@ def save_to_storage_background(
             if not current_app.config.get("DB_DISABLED", False):
                 try:
                     logger.debug(
-                        "Saving prediction %s to database (with ai_advice)", prediction_id
+                        "Saving prediction %s to database (with ai_advice)",
+                        prediction_id,
                     )
                     save_to_db(
                         prediction_id,
