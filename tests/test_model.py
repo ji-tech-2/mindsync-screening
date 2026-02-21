@@ -10,6 +10,7 @@ from flaskr.model import (
     LinearRegressionRidge,
     analyze_wellness_factors,
     categorize_mental_health_score,
+    _compute_category_thresholds,
 )
 
 
@@ -167,31 +168,44 @@ class TestLinearRegressionRidge:
 class TestCategorizeMentalHealthScore:
     """Test mental health score categorization."""
 
+    def setup_method(self):
+        """Reset thresholds to None (static fallback) before each test."""
+        import flaskr.model as model_module
+
+        self._original_thresholds = model_module._category_thresholds
+        model_module._category_thresholds = None
+
+    def teardown_method(self):
+        """Restore original thresholds after each test."""
+        import flaskr.model as model_module
+
+        model_module._category_thresholds = self._original_thresholds
+
     def test_dangerous_category(self):
-        """Test score in dangerous range."""
+        """Test score in dangerous range (static fallback)."""
         assert categorize_mental_health_score(10) == "dangerous"
         assert categorize_mental_health_score(12) == "dangerous"
 
     def test_not_healthy_category(self):
-        """Test score in not healthy range."""
+        """Test score in not healthy range (static fallback)."""
         assert categorize_mental_health_score(13) == "not healthy"
         assert categorize_mental_health_score(20) == "not healthy"
         assert categorize_mental_health_score(28.6) == "not healthy"
 
     def test_average_category(self):
-        """Test score in average range."""
+        """Test score in average range (static fallback)."""
         assert categorize_mental_health_score(29) == "average"
         assert categorize_mental_health_score(40) == "average"
         assert categorize_mental_health_score(61.4) == "average"
 
     def test_healthy_category(self):
-        """Test score in healthy range."""
+        """Test score in healthy range (static fallback)."""
         assert categorize_mental_health_score(62) == "healthy"
         assert categorize_mental_health_score(75) == "healthy"
         assert categorize_mental_health_score(100) == "healthy"
 
     def test_boundary_values(self):
-        """Test boundary values between categories."""
+        """Test boundary values between categories (static fallback)."""
         assert categorize_mental_health_score(12) == "dangerous"
         assert categorize_mental_health_score(12.1) == "not healthy"
         assert categorize_mental_health_score(28.6) == "not healthy"
@@ -204,6 +218,81 @@ class TestCategorizeMentalHealthScore:
         assert categorize_mental_health_score(0) == "dangerous"
         assert categorize_mental_health_score(100) == "healthy"
         assert categorize_mental_health_score(150) == "healthy"  # Beyond 100
+
+    def test_dynamic_thresholds(self):
+        """Test categorization with dynamic thresholds."""
+        import flaskr.model as model_module
+
+        # Simulate thresholds: dangerous<=15, not healthy<=35, average<=55,
+        # above average<=75, healthy>75
+        model_module._category_thresholds = [
+            (15.0, "dangerous"),
+            (35.0, "not healthy"),
+            (55.0, "average"),
+            (75.0, "above average"),
+            (float("inf"), "healthy"),
+        ]
+        assert categorize_mental_health_score(10) == "dangerous"
+        assert categorize_mental_health_score(15) == "dangerous"
+        assert categorize_mental_health_score(16) == "not healthy"
+        assert categorize_mental_health_score(35) == "not healthy"
+        assert categorize_mental_health_score(36) == "average"
+        assert categorize_mental_health_score(55) == "average"
+        assert categorize_mental_health_score(56) == "above average"
+        assert categorize_mental_health_score(75) == "above average"
+        assert categorize_mental_health_score(76) == "healthy"
+        assert categorize_mental_health_score(100) == "healthy"
+
+    def test_dynamic_thresholds_clamping(self):
+        """Test that scores are still clamped to 0-100 with dynamic thresholds."""
+        import flaskr.model as model_module
+
+        model_module._category_thresholds = [
+            (50.0, "low"),
+            (float("inf"), "high"),
+        ]
+        assert categorize_mental_health_score(-10) == "low"  # clamped to 0
+        assert categorize_mental_health_score(150) == "high"  # clamped to 100
+
+    def test_compute_thresholds_from_cluster_csvs(self):
+        """Test _compute_category_thresholds reads mental_wellness_index_0_100 from cluster CSVs."""
+        import flaskr.model as model_module
+
+        # Save originals
+        orig_cluster_dfs = model_module._cluster_dfs
+        orig_thresholds = model_module._category_thresholds
+
+        try:
+            # Simulate cluster CSVs with known wellness index values
+            model_module._cluster_dfs = {
+                "dangerous": pd.DataFrame([{"mental_wellness_index_0_100": 5.92}]),
+                "not healthy": pd.DataFrame([{"mental_wellness_index_0_100": 7.85}]),
+                "average": pd.DataFrame([{"mental_wellness_index_0_100": 16.37}]),
+                "above average": pd.DataFrame([{"mental_wellness_index_0_100": 31.96}]),
+                "healthy": pd.DataFrame([{"mental_wellness_index_0_100": 61.52}]),
+            }
+            model_module._category_thresholds = None
+
+            _compute_category_thresholds()
+
+            assert model_module._category_thresholds is not None
+            assert len(model_module._category_thresholds) == 5
+
+            # Verify midpoints: (5.92+7.85)/2, (7.85+16.37)/2, (16.37+31.96)/2, (31.96+61.52)/2
+            thresholds = model_module._category_thresholds
+            assert thresholds[0][1] == "dangerous"
+            assert abs(thresholds[0][0] - (5.92 + 7.85) / 2) < 0.01
+            assert thresholds[1][1] == "not healthy"
+            assert abs(thresholds[1][0] - (7.85 + 16.37) / 2) < 0.01
+            assert thresholds[2][1] == "average"
+            assert abs(thresholds[2][0] - (16.37 + 31.96) / 2) < 0.01
+            assert thresholds[3][1] == "above average"
+            assert abs(thresholds[3][0] - (31.96 + 61.52) / 2) < 0.01
+            assert thresholds[4][1] == "healthy"
+            assert thresholds[4][0] == float("inf")
+        finally:
+            model_module._cluster_dfs = orig_cluster_dfs
+            model_module._category_thresholds = orig_thresholds
 
 
 class TestAnalyzeWellnessFactors:
