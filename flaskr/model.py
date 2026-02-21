@@ -22,6 +22,12 @@ preprocessor = None
 healthy_cluster_df = None
 coefficients_df = None
 
+# Cluster DataFrames keyed by label
+_cluster_dfs = {}  # e.g. {"dangerous": df, "not healthy": df, ...}
+
+# Dynamic category thresholds (computed from cluster averages)
+_category_thresholds = None  # List of (upper_bound, label) tuples, ascending
+
 # Version tracking
 _current_version = None  # W&B artifact digest of the loaded version
 _artifacts_path = None  # Path to artifacts directory
@@ -165,6 +171,24 @@ def _load_artifacts(artifacts_path):
     loaded["coefficients_df"] = pd.read_csv(coef_path)
     logger.info("Coefficients loaded")
 
+    # Load individual cluster average CSVs
+    cluster_files = {
+        "dangerous": "dangerous_cluster_avg.csv",
+        "not healthy": "not_healthy_cluster_avg.csv",
+        "average": "average_cluster_avg.csv",
+        "above average": "above_average_cluster_avg.csv",
+        "healthy": "healthy_cluster_avg.csv",
+    }
+    cluster_dfs = {}
+    for label, filename in cluster_files.items():
+        path = os.path.join(artifacts_path, filename)
+        if os.path.exists(path):
+            cluster_dfs[label] = pd.read_csv(path)
+            logger.info("Cluster '%s' loaded from %s", label, filename)
+        else:
+            logger.warning("Cluster file not found: %s", path)
+    loaded["cluster_dfs"] = cluster_dfs
+
     return loaded
 
 
@@ -208,11 +232,80 @@ def _validate_model(loaded):
 
 def _apply_loaded_artifacts(loaded):
     """Apply loaded artifacts to global state."""
-    global model, preprocessor, healthy_cluster_df, coefficients_df
+    global model, preprocessor, healthy_cluster_df, coefficients_df, _cluster_dfs
     model = loaded["model"]
     preprocessor = loaded["preprocessor"]
     healthy_cluster_df = loaded["healthy_cluster_df"]
     coefficients_df = loaded["coefficients_df"]
+    _cluster_dfs = loaded["cluster_dfs"]
+
+
+def _compute_category_thresholds():
+    """
+    Compute dynamic category thresholds from individual cluster CSVs.
+    Reads mental_wellness_index_0_100 from each cluster CSV,
+    then uses midpoints between adjacent scores as category boundaries.
+    """
+    global _category_thresholds
+
+    if not _cluster_dfs:
+        logger.warning("Cannot compute thresholds: cluster CSVs not loaded")
+        return
+
+    try:
+        # Ordered category labels from lowest to highest wellness
+        ordered_labels = [
+            "dangerous",
+            "not healthy",
+            "average",
+            "above average",
+            "healthy",
+        ]
+
+        # Read the wellness index from each cluster CSV
+        cluster_scores = {}
+        for label in ordered_labels:
+            if label in _cluster_dfs:
+                df = _cluster_dfs[label]
+                if "mental_wellness_index_0_100" in df.columns:
+                    cluster_scores[label] = float(
+                        df["mental_wellness_index_0_100"].iloc[0]
+                    )
+                else:
+                    logger.warning(
+                        "Cluster '%s' CSV missing mental_wellness_index_0_100", label
+                    )
+
+        # Sort by the predefined order
+        sorted_scores = [
+            (label, cluster_scores[label])
+            for label in ordered_labels
+            if label in cluster_scores
+        ]
+
+        # Compute midpoints between adjacent cluster scores as thresholds
+        thresholds = []
+        for i in range(len(sorted_scores) - 1):
+            label = sorted_scores[i][0]
+            current_score = sorted_scores[i][1]
+            next_score = sorted_scores[i + 1][1]
+            midpoint = (current_score + next_score) / 2.0
+            thresholds.append((midpoint, label))
+
+        # The last category has no upper bound — it catches everything above
+        if sorted_scores:
+            thresholds.append((float("inf"), sorted_scores[-1][0]))
+
+        _category_thresholds = thresholds
+
+        logger.info(
+            "Category thresholds computed from cluster CSVs: %s",
+            [(f"{t:.2f}", l) for t, l in thresholds if t != float("inf")],
+        )
+
+    except Exception as e:
+        logger.error("Failed to compute category thresholds: %s", e)
+        _category_thresholds = None
 
 
 def _backup_artifacts(artifacts_path):
@@ -370,6 +463,7 @@ def _check_for_updates():
 
         # New model is valid — hot-swap
         _apply_loaded_artifacts(loaded)
+        _compute_category_thresholds()
         _current_version = latest_digest
         logger.info("Model updated successfully to version %s...", latest_digest[:8])
 
@@ -422,6 +516,7 @@ def init_app(app):
             logger.error("Model validation failed on initial load")
             # Still apply — better to have a model than none
             _apply_loaded_artifacts(loaded)
+        _compute_category_thresholds()
     except Exception as e:
         logger.error("Failed to load artifacts: %s", e)
 
@@ -1025,18 +1120,27 @@ def analyze_wellness_factors(user_df):
 
 
 def categorize_mental_health_score(prediction_score):
-    """Categorize mental health score."""
+    """Categorize mental health score using dynamic thresholds from cluster averages."""
     prediction_score = float(prediction_score)
     capped_score = min(max(prediction_score, 0), 100)
 
-    if capped_score <= 12:
-        category = "dangerous"
-    elif capped_score <= 28.6:
-        category = "not healthy"
-    elif capped_score <= 61.4:
-        category = "average"
+    if _category_thresholds is not None:
+        # Use dynamic thresholds computed from cluster averages
+        category = _category_thresholds[-1][1]  # default to last (highest) category
+        for upper_bound, label in _category_thresholds:
+            if capped_score <= upper_bound:
+                category = label
+                break
     else:
-        category = "healthy"
+        # Fallback to static thresholds if not yet computed
+        if capped_score <= 12:
+            category = "dangerous"
+        elif capped_score <= 28.6:
+            category = "not healthy"
+        elif capped_score <= 61.4:
+            category = "average"
+        else:
+            category = "healthy"
 
     logger.debug(
         f"Mental health score {prediction_score:.2f} categorized as '{category}'"

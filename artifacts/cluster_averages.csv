@@ -1,0 +1,6 @@
+cluster_label,age,work_screen_hours,leisure_screen_hours,sleep_hours,sleep_quality_1_5,stress_level_0_10,productivity_0_100,exercise_minutes_per_week,social_hours_per_week,gender,occupation,work_mode,mental_wellness_index_0_100
+dangerous,29.79,1.31,9.32,6.47,1.06,9.65,43.44,87.77,6.32,Female,Employed,Hybrid,5.92
+not healthy,31.31,5.05,5.78,6.73,1.15,9.44,44.19,101.8,6.93,Female,Student,Remote,7.85
+average,26.82,1.38,6.48,6.79,1.07,8.19,54.65,101.78,12.67,Female,Employed,Hybrid,16.37
+above average,31.21,1.44,6.33,7.57,1.72,7.09,62.24,145.64,5.54,Male,Employed,Hybrid,31.96
+healthy,28.57,1.46,4.69,8.07,2.57,4.2,83.1,116.45,10.77,Female,Employed,Hybrid,61.52
