@@ -1163,7 +1163,7 @@ def get_weekly_chart_data():
                 "date": day_str,
                 "label": day_label,
                 "mental_health_index": 0,
-                "health_level": "No Data", 
+                "health_level": "No Data",
                 "sleep_duration": 0,
                 "sleep_quality": 0,
                 "stress_level": 0,
@@ -1178,13 +1178,15 @@ def get_weekly_chart_data():
             # If data exists, overwrite defaults
             if day_str in data_map:
                 row = data_map[day_str]
-                           
+
                 avg_mhi_score = round(float(row.mental_health_index or 0), 1)
-                
+
                 daily_stats.update(
                     {
                         "mental_health_index": avg_mhi_score,
-                        "health_level": model.categorize_mental_health_score(avg_mhi_score),
+                        "health_level": model.categorize_mental_health_score(
+                            avg_mhi_score
+                        ),
                         "sleep_duration": round(float(row.sleep_duration or 0), 1),
                         "sleep_quality": round(float(row.sleep_quality or 0), 1),
                         "stress_level": round(float(row.stress_level or 0), 1),
