@@ -50,6 +50,8 @@ jobs:
               -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
               -e JWT_PUBLIC_KEY="${{ secrets.JWT_PUBLIC_KEY }}" \
               -e VALKEY_URL="${{ secrets.VALKEY_URL }}" \
+              -e GUNICORN_WORKERS=${{ secrets.GUNICORN_WORKERS }} \
+              -e GUNICORN_THREADS=${{ secrets.GUNICORN_THREADS }} \
               ${{ env.IMAGE_NAME }}:latest
 
             # Clean up unused images
