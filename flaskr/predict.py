@@ -1121,10 +1121,11 @@ def get_weekly_chart_data():
             )
 
         # No cache found, calculate fresh data
-        end_date = datetime.combine(today, datetime.max.time())
-
         # Query Data (Group by Date to handle multiple check-ins per day)
         # We take the AVERAGE if a user checks in multiple times a day
+        # Use func.date() for both grouping and filtering so that predictions
+        # made today are always included regardless of time-of-day or UTC offset.
+        # This mirrors the streak logic which does pure date-level comparisons.
         query = (
             db.session.query(
                 func.date(Predictions.pred_date).label("date"),
@@ -1140,8 +1141,8 @@ def get_weekly_chart_data():
             )
             .filter(
                 Predictions.user_id == uuid.UUID(user_id),
-                Predictions.pred_date >= start_date,
-                Predictions.pred_date <= end_date,
+                func.date(Predictions.pred_date) >= start_date,
+                func.date(Predictions.pred_date) <= today,
             )
             .group_by(func.date(Predictions.pred_date))
             .all()
