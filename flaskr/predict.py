@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # Constants
 FACTOR_TYPE_IMPROVEMENT = "improvement"
 FACTOR_TYPE_STRENGTH = "strengths"
+GUEST_ADVICE_PLACEHOLDER = "Log in to view personalized AI advice."
 
 # ===================== #
 #   AUTH HELPER FUNCS   #
@@ -89,6 +90,14 @@ def _check_ownership(stored_user_id, stored_guest_id, current_user_id, current_g
         return True
     if stored_guest_id and str(stored_guest_id) == str(current_guest):
         return True
+    return False
+
+
+def _is_guest_placeholder_advice(result_data):
+    """Return True if the result contains the guest placeholder AI advice text."""
+    advice = result_data.get("advice") or {}
+    if isinstance(advice, dict):
+        return advice.get("description") == GUEST_ADVICE_PLACEHOLDER
     return False
 
 
@@ -361,6 +370,43 @@ def get_result(prediction_id):
         status = prediction_data["status"]
         logger.debug("Cache hit for %s with status: %s", prediction_id, status)
 
+        # If an authenticated user views a result that has guest placeholder advice,
+        # kick off a background upgrade so they get real AI advice.
+        if (
+            user_id
+            and status == "ready"
+            and _is_guest_placeholder_advice(prediction_data.get("result", {}))
+        ):
+            logger.info(
+                "Authenticated user viewing guest-placeholder advice (cache) for %s "
+                "- upgrading",
+                prediction_id,
+            )
+            result_data = prediction_data.get("result", {})
+            result_data["advice"] = None
+            cache.update_prediction(
+                prediction_id, {"status": "partial", "result": result_data}
+            )
+            prediction_data["status"] = "partial"
+            prediction_data["result"] = result_data
+            status = "partial"
+            app_context = current_app._get_current_object().app_context()
+            thread = threading.Thread(
+                target=upgrade_advice_background,
+                args=(
+                    prediction_id,
+                    result_data["prediction_score"],
+                    result_data["health_level"],
+                    result_data.get("wellness_analysis", {}),
+                    app_context,
+                ),
+            )
+            thread.daemon = True
+            thread.start()
+            logger.info(
+                "Started advice upgrade thread (cache) for %s", prediction_id
+            )
+
         # Build response based on status
         response = _build_status_response(prediction_data, status, prediction_id)
         if response:
@@ -396,6 +442,55 @@ def get_result(prediction_id):
                     403,
                 )
 
+        formatted = format_db_output(data)
+
+        # If an authenticated user sees guest placeholder advice from the DB,
+        # seed the cache as partial and upgrade advice in the background.
+        if user_id and _is_guest_placeholder_advice(formatted):
+            logger.info(
+                "Authenticated user viewing guest-placeholder advice (DB) for %s "
+                "- upgrading",
+                prediction_id,
+            )
+            formatted["advice"] = None
+            cache.store_prediction(
+                prediction_id,
+                {
+                    "status": "partial",
+                    "result": formatted,
+                    "created_at": data["prediction_date"],
+                    "user_id": db_user_id,
+                    "guest_id": db_guest_id,
+                },
+            )
+            app_context = current_app._get_current_object().app_context()
+            thread = threading.Thread(
+                target=upgrade_advice_background,
+                args=(
+                    prediction_id,
+                    formatted["prediction_score"],
+                    formatted["health_level"],
+                    formatted.get("wellness_analysis", {}),
+                    app_context,
+                ),
+            )
+            thread.daemon = True
+            thread.start()
+            logger.info(
+                "Started advice upgrade thread (DB source) for %s", prediction_id
+            )
+            return (
+                jsonify(
+                    {
+                        "status": "partial",
+                        "result": formatted,
+                        "message": "Prediction ready. AI advice still processing.",
+                        "created_at": data["prediction_date"],
+                    }
+                ),
+                200,
+            )
+
         return (
             jsonify(
                 {
@@ -403,7 +498,7 @@ def get_result(prediction_id):
                     "source": "database",
                     "created_at": data["prediction_date"],
                     "completed_at": data["prediction_date"],
-                    "result": format_db_output(data),
+                    "result": formatted,
                 }
             ),
             200,
@@ -1379,7 +1474,7 @@ def save_to_storage_background(
                 )
                 ai_advice = {
                     "factors": {},
-                    "description": "Log in to view personalized AI advice.",
+                    "description": GUEST_ADVICE_PLACEHOLDER,
                 }
             else:
                 logger.info("Generating AI advice for %s", prediction_id)
@@ -1497,6 +1592,161 @@ def save_to_storage_background(
         )
 
 
+def upgrade_advice_background(
+    prediction_id,
+    prediction_score,
+    mental_health_category,
+    wellness_analysis,
+    app_context,
+):
+    """
+    Background worker that replaces guest placeholder advice with real AI advice.
+
+    Triggered when an authenticated user views a result that was originally made
+    as a guest (i.e. the stored advice description is the placeholder text).
+    Generates advice via Gemini, updates the cache to 'ready', and updates the DB.
+    """
+    try:
+        with app_context:
+            logger.info(
+                "⚙️  [UPGRADE] Generating AI advice for prediction %s", prediction_id
+            )
+
+            # Generate AI advice
+            try:
+                api_keys_pool = current_app.config.get("GEMINI_API_KEYS")
+                ai_advice = ai.get_ai_advice(
+                    prediction_score,
+                    mental_health_category,
+                    wellness_analysis,
+                    api_keys_pool,
+                )
+                if not ai_advice or not isinstance(ai_advice, dict):
+                    logger.warning(
+                        "[UPGRADE] AI advice generation failed for %s, using fallback",
+                        prediction_id,
+                    )
+                    ai_advice = {
+                        "factors": {},
+                        "description": "AI advice could not be generated at this time.",
+                    }
+                else:
+                    logger.info(
+                        "✅ [UPGRADE] AI advice generated for %s", prediction_id
+                    )
+            except Exception as ai_error:
+                logger.error(
+                    "❌ [UPGRADE] AI advice error for %s: %s",
+                    prediction_id,
+                    ai_error,
+                    exc_info=True,
+                )
+                ai_advice = {
+                    "factors": {},
+                    "description": "AI advice could not be generated at this time.",
+                }
+
+            # Update cache with real advice and set status to 'ready'
+            try:
+                existing = cache.fetch_prediction(prediction_id)
+                if existing:
+                    existing_result = existing.get("result", {})
+                    existing_result["advice"] = ai_advice
+                    cache.update_prediction(
+                        prediction_id,
+                        {
+                            "status": "ready",
+                            "result": existing_result,
+                            "completed_at": datetime.now().isoformat(),
+                        },
+                    )
+                    logger.info(
+                        "✅ [UPGRADE] Cache updated with real AI advice for %s",
+                        prediction_id,
+                    )
+            except Exception as cache_error:
+                logger.error(
+                    "❌ [UPGRADE] Cache update failed for %s: %s",
+                    prediction_id,
+                    cache_error,
+                    exc_info=True,
+                )
+
+            # Update the database record too
+            if not current_app.config.get("DB_DISABLED", False):
+                try:
+                    _upgrade_db_advice(prediction_id, ai_advice, wellness_analysis)
+                except Exception as db_error:
+                    logger.error(
+                        "❌ [UPGRADE] DB update failed for %s: %s",
+                        prediction_id,
+                        db_error,
+                        exc_info=True,
+                    )
+
+    except Exception as e:
+        logger.error(
+            "❌ [UPGRADE] Critical error in upgrade worker for %s: %s",
+            prediction_id,
+            e,
+            exc_info=True,
+        )
+
+
+def _upgrade_db_advice(prediction_id, ai_advice, wellness_analysis):
+    """
+    Update the DB record for a prediction with real AI advice.
+
+    Replaces the placeholder ai_desc and populates Advices / References rows
+    for each improvement factor that now has advice from Gemini.
+    """
+    pred_uuid = uuid.UUID(prediction_id)
+
+    pred = (
+        db.session.query(Predictions)
+        .filter(Predictions.pred_id == pred_uuid)
+        .one_or_none()
+    )
+    if not pred:
+        logger.warning(
+            "[UPGRADE] Prediction %s not found in DB for upgrade", prediction_id
+        )
+        return
+
+    # Update description
+    ai_desc_text = ai_advice.get("description") if isinstance(ai_advice, dict) else None
+    pred.ai_desc = ai_desc_text
+
+    # Populate advices / references on the existing improvement detail rows
+    factors_map = ai_advice.get("factors", {}) if isinstance(ai_advice, dict) else {}
+    improvement_details = (
+        db.session.query(PredDetails)
+        .filter(
+            PredDetails.pred_id == pred_uuid,
+            PredDetails.factor_type == FACTOR_TYPE_IMPROVEMENT,
+        )
+        .all()
+    )
+    for detail in improvement_details:
+        fname = detail.factor_name
+        factor_data = factors_map.get(fname, {})
+        for tip in factor_data.get("advices", []):
+            if tip:
+                db.session.add(
+                    Advices(detail_id=detail.detail_id, advice_text=str(tip))
+                )
+        for ref in factor_data.get("references", []):
+            if ref:
+                db.session.add(
+                    References(detail_id=detail.detail_id, reference_link=str(ref))
+                )
+
+    db.session.commit()
+    logger.info(
+        "✅ [UPGRADE] DB updated with real AI advice for %s", prediction_id
+    )
+
+
 def process_prediction(
     prediction_id, json_input, created_at, start_ts, app, user_id, guest_id
 ):
@@ -1609,7 +1859,7 @@ def process_prediction(
                 )
                 ai_advice = {
                     "factors": {},
-                    "description": "Log in to view personalized AI advice.",
+                    "description": GUEST_ADVICE_PLACEHOLDER,
                 }
             else:
                 logger.info("Requesting AI advice for %s", prediction_id)
