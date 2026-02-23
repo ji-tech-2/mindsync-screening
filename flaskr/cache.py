@@ -282,7 +282,15 @@ def _process_handover(app, message_data):
         # Reuse the same app context for both commit and rollback
         with app.app_context():
             try:
-                # Update all predictions for this guest_id
+                # Fetch prediction IDs first so we can update cache entries after migration
+                guest_predictions = (
+                    db.session.query(Predictions.id)
+                    .filter(Predictions.guest_id == guest_uuid)
+                    .all()
+                )
+                prediction_ids = [str(row.id) for row in guest_predictions]
+
+                # Update all predictions for this guest_id in the database
                 predictions_updated = (
                     db.session.query(Predictions)
                     .filter(Predictions.guest_id == guest_uuid)
@@ -300,6 +308,30 @@ def _process_handover(app, message_data):
                     guest_id_str,
                     user_id_str,
                 )
+
+                # Migrate matching cache entries so the registered user can access them
+                # immediately without waiting for the 24-hour TTL to expire
+                for prediction_id in prediction_ids:
+                    try:
+                        cached = fetch_prediction(prediction_id)
+                        if cached is not None:
+                            update_prediction(
+                                prediction_id,
+                                {"user_id": user_id_str, "guest_id": None},
+                            )
+                            logger.debug(
+                                "Cache migrated for prediction %s: guest_id=%s -> user_id=%s",
+                                prediction_id,
+                                guest_id_str,
+                                user_id_str,
+                            )
+                    except Exception as cache_error:
+                        # Cache migration failure is non-fatal; DB is already correct
+                        logger.warning(
+                            "Failed to migrate cache for prediction %s: %s",
+                            prediction_id,
+                            cache_error,
+                        )
 
                 return True
             except Exception as db_error:
