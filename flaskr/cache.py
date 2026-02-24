@@ -284,11 +284,11 @@ def _process_handover(app, message_data):
             try:
                 # Fetch prediction IDs first so we can update cache entries after migration
                 guest_predictions = (
-                    db.session.query(Predictions.id)
+                    db.session.query(Predictions.pred_id)
                     .filter(Predictions.guest_id == guest_uuid)
                     .all()
                 )
-                prediction_ids = [str(row.id) for row in guest_predictions]
+                prediction_ids = [str(row.pred_id) for row in guest_predictions]
 
                 # Update all predictions for this guest_id in the database
                 predictions_updated = (
