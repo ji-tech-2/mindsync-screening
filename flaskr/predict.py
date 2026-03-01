@@ -41,14 +41,29 @@ FACTOR_TYPE_STRENGTH = "strengths"
 
 
 def _get_public_key():
-    """Retrieve public key from config."""
-    # Ensure newline format is correct if passed as single line string
-    # Replace literal \n with actual newlines if necessary
+    """Retrieve public key from config or key file."""
+    # 1. Try from config / env var
     key = current_app.config.get("JWT_PUBLIC_KEY")
-    if not key:
-        logger.error("JWT_PUBLIC_KEY not configured")
-        return None
-    return key.replace("\\n", "\n")
+    if key:
+        return key.replace("\\n", "\n")
+
+    # 2. Fallback: read from mounted key file (Docker volume)
+    key_path = "/keys/public.pem"
+    try:
+        with open(key_path, "r", encoding="utf-8") as f:
+            key = f.read().strip()
+        if key:
+            # Cache in config so we don't read the file on every request
+            current_app.config["JWT_PUBLIC_KEY"] = key
+            logger.info("JWT_PUBLIC_KEY loaded from %s", key_path)
+            return key
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning("Could not read key file %s: %s", key_path, e)
+
+    logger.error("JWT_PUBLIC_KEY not configured and key file not found")
+    return None
 
 
 def get_jwt_identity():
